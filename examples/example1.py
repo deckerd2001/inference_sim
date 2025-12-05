@@ -21,7 +21,7 @@ from llm_inference_simulator import (
 )
 
 
-def example_llama7b_single_gpu():
+def example_llama70b_single_gpu():
     """
     Example: LLaMA-7B on a single A100-80GB GPU.
     """
@@ -30,7 +30,7 @@ def example_llama7b_single_gpu():
     print("="*70)
 
     config = SimulatorConfig(
-        model_spec=get_model("llama-7b"),
+        model_spec=get_model("llama2-70b"),
         workload_spec=WorkloadSpec(
             avg_input_length=512,
             max_input_length=2048,
@@ -40,18 +40,17 @@ def example_llama7b_single_gpu():
             batch_size=8,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=1,
+            n_gpus_per_node=2,
             n_nodes=1,
             gpu_spec=get_gpu("A100-80GB"),
         ),
         parallelism_spec=ParallelismSpec(
-            tensor_parallel_size=1,
+            tensor_parallel_size=2,
             data_parallel_size=1,
             pipeline_parallel_size=1,
         ),
         scheduler_spec=SchedulerSpec(
             batching_type="continuous",
-            max_batch_size=8,
             token_level_scheduling=True,
         ),
         simulation_duration_s=300.0,  # 1 minute simulation
@@ -80,7 +79,7 @@ def example_llama70b_multi_gpu():
             max_input_length=4096,
             avg_output_length=256,
             max_output_length=1024,
-            arrival_rate=10.0,  # 1 request per second
+            arrival_rate=1.0,  # 1 request per second
             batch_size=16,
         ),
         cluster_spec=ClusterSpec(
@@ -100,7 +99,6 @@ def example_llama70b_multi_gpu():
         ),
         scheduler_spec=SchedulerSpec(
             batching_type="continuous",
-            max_batch_size=16,
             token_level_scheduling=True,
         ),
         simulation_duration_s=300.0,
@@ -144,7 +142,6 @@ def example_high_load():
         ),
         scheduler_spec=SchedulerSpec(
             batching_type="continuous",
-            max_batch_size=32,
             batching_window_ms=5.0,
             token_level_scheduling=True,
         ),
@@ -165,8 +162,9 @@ def main():
     print("#"*70)
 
     # Run examples
-    example_llama70b_multi_gpu()
-    example_high_load()
+    example_llama70b_single_gpu()
+    # example_llama70b_multi_gpu()
+    # example_high_load()
 
     print("\n" + "#"*70)
     print("# All examples completed!")
