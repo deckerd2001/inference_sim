@@ -1,117 +1,21 @@
 """
-Performance modeling for LLM inference.
-Calculates compute, memory, and communication costs for Prefill and Decode phases.
+Detailed performance breakdown by component
+(Attention, MLP, Norm, etc.)
 """
 
-import math
-from typing import Tuple, Optional
-from .config import ModelSpec, GPUSpec, ParallelismSpec, DataType
-from .communication import (
-    TPCommunicationStrategy,
-    estimate_collective_time,
-    create_megatron_tp_strategy,
-)
+import sys
+sys.path.insert(0, '.')
+
+from llm_inference_simulator import get_model, get_gpu, ParallelismSpec
+from llm_inference_simulator.performance_model import PerformanceModel
+from llm_inference_simulator.communication import create_megatron_tp_strategy
 
 
-class PerformanceModel:
-    """
-    Models the performance of Transformer-based LLM inference.
-    
-    This includes:
-    - Compute costs (FLOPs) for attention and MLP
-    - Memory costs (bytes transferred)
-    - Communication costs for parallelism
-    """
-    
-    def __init__(self, model_spec: ModelSpec, gpu_spec: GPUSpec, 
-                 parallelism_spec: ParallelismSpec,
-                 tp_comm_strategy: Optional[TPCommunicationStrategy] = None):
-        self.model = model_spec
-        self.gpu = gpu_spec
-        self.parallel = parallelism_spec
-        
-        # Communication strategy
-        if tp_comm_strategy is None:
-            self.tp_comm_strategy = create_megatron_tp_strategy()
-        else:
-            self.tp_comm_strategy = tp_comm_strategy
-        
-        # Derived parameters
-        self.head_dim = self.model.hidden_size // self.model.n_heads
-        self.bytes_per_param = self.model.weight_dtype.bytes_per_element()
-        self.bytes_per_activation = self.model.activation_dtype.bytes_per_element()
-        
-        # FLOPS per operation (2 for multiply-add)
-        self.flops_per_mac = 2
-    
-    def estimate_prefill_time(self, batch_size: int, seq_length: int) -> float:
-        """
-        Estimate time for prefill phase.
-        
-        Args:
-            batch_size: Number of sequences in batch
-            seq_length: Input sequence length
-            
-        Returns:
-            Estimated time in seconds
-        """
-        breakdown = self.breakdown_prefill(batch_size, seq_length)
-        
-        # Sum up all components
-        per_layer_time = sum(
-            val['total'] if isinstance(val, dict) else val 
-            for val in breakdown.values()
-        )
-        
-        # Total for all layers
-        total_time = per_layer_time * self.model.n_layers
-        
-        # Add embedding and output projection overhead
-        embedding_time = self._embedding_time(batch_size, seq_length)
-        lm_head_time = self._lm_head_time(batch_size, seq_length)
-        
-        return total_time + embedding_time + lm_head_time
-    
-    def estimate_decode_time(self, batch_size: int, kv_cache_length: int) -> float:
-        """
-        Estimate time for a single decode step.
-        
-        Args:
-            batch_size: Number of sequences in batch
-            kv_cache_length: Current length of KV cache (context length)
-            
-        Returns:
-            Estimated time in seconds
-        """
-        breakdown = self.breakdown_decode(batch_size, kv_cache_length)
-        
-        # Sum up all components
-        per_layer_time = sum(
-            val['total'] if isinstance(val, dict) else val 
-            for val in breakdown.values()
-        )
-        
-        # Total for all layers
-        total_time = per_layer_time * self.model.n_layers
-        
-        # Add output projection overhead
-        lm_head_time = self._lm_head_time(batch_size, 1)
-        
-        return total_time + lm_head_time
-    
-    # ========== DETAILED BREAKDOWN METHODS ==========
+class DetailedPerformanceModel(PerformanceModel):
+    """Extended performance model with detailed component breakdown."""
     
     def breakdown_prefill(self, batch_size: int, seq_length: int) -> dict:
-        """
-        Get detailed breakdown of prefill time by component.
-        
-        Args:
-            batch_size: Batch size
-            seq_length: Sequence length
-            
-        Returns:
-            Dictionary with detailed timing for each component
-        """
+        """Get detailed breakdown of prefill time."""
         B, L = batch_size, seq_length
         H = self.model.hidden_size
         D_ff = self.model.ffn_dim
@@ -121,7 +25,8 @@ class PerformanceModel:
         # === ATTENTION BLOCK ===
         
         # 1. Input LayerNorm / RMSNorm
-        breakdown['attention_norm'] = self._norm_time(B, L, H)
+        norm_compute = self._norm_time(B, L, H)
+        breakdown['attention_norm'] = norm_compute
         
         # 2. QKV Projection
         qkv_flops = 3 * B * L * H * H * self.flops_per_mac
@@ -175,7 +80,8 @@ class PerformanceModel:
         
         # 5. Attention Communication
         activation_size = B * L * H * self.bytes_per_activation
-        breakdown['attention_communication'] = self._get_comm_time(activation_size)
+        attn_comm = self._estimate_comm_time(activation_size)
+        breakdown['attention_communication'] = attn_comm
         
         # === MLP BLOCK ===
         
@@ -220,7 +126,7 @@ class PerformanceModel:
         }
         
         # 10. MLP Communication
-        breakdown['mlp_communication'] = self._get_comm_time(activation_size)
+        breakdown['mlp_communication'] = self._estimate_comm_time(activation_size)
         
         # 11. KV Cache Write
         kv_cache_bytes = 2 * B * L * H * self.bytes_per_activation
@@ -229,16 +135,7 @@ class PerformanceModel:
         return breakdown
     
     def breakdown_decode(self, batch_size: int, kv_cache_length: int) -> dict:
-        """
-        Get detailed breakdown of decode time by component.
-        
-        Args:
-            batch_size: Batch size
-            kv_cache_length: Current KV cache length
-            
-        Returns:
-            Dictionary with detailed timing for each component
-        """
+        """Get detailed breakdown of decode time."""
         B, T = batch_size, kv_cache_length
         H = self.model.hidden_size
         D_ff = self.model.ffn_dim
@@ -305,7 +202,7 @@ class PerformanceModel:
         
         # 6. Attention Communication
         activation_size = B * H * self.bytes_per_activation
-        breakdown['attention_communication'] = self._get_comm_time(activation_size)
+        breakdown['attention_communication'] = self._estimate_comm_time(activation_size)
         
         # === MLP BLOCK ===
         
@@ -350,7 +247,7 @@ class PerformanceModel:
         }
         
         # 11. MLP Communication
-        breakdown['mlp_communication'] = self._get_comm_time(activation_size)
+        breakdown['mlp_communication'] = self._estimate_comm_time(activation_size)
         
         # 12. KV Cache Write
         kv_cache_write_bytes = 2 * B * H * self.bytes_per_activation
@@ -358,17 +255,17 @@ class PerformanceModel:
         
         return breakdown
     
-    # ========== HELPER METHODS ==========
-    
     def _norm_time(self, B: int, L: int, H: int) -> float:
         """LayerNorm / RMSNorm time (memory-bound)."""
         norm_bytes = 2 * B * L * H * self.bytes_per_activation
         return norm_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
     
-    def _get_comm_time(self, activation_size: float) -> float:
-        """Get communication time for TP."""
+    def _estimate_comm_time(self, activation_size: float) -> float:
+        """Estimate communication time."""
         if self.parallel.tensor_parallel_size == 1:
             return 0.0
+        
+        from llm_inference_simulator.communication import estimate_collective_time
         
         return estimate_collective_time(
             self.tp_comm_strategy.attention_output.collective_op,
@@ -378,28 +275,100 @@ class PerformanceModel:
             5.0,
             self.tp_comm_strategy.attention_output.algorithm,
         )
+
+
+def print_breakdown(breakdown: dict, title: str):
+    """Pretty print breakdown."""
+    print(f"\n{'='*70}")
+    print(f"{title}")
+    print(f"{'='*70}")
     
-    def _embedding_time(self, B: int, L: int) -> float:
-        """Time for embedding lookup (prefill)."""
-        embed_bytes = B * L * self.model.hidden_size * self.bytes_per_activation
-        return embed_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+    total_time = 0.0
     
-    def _lm_head_time(self, B: int, L: int) -> float:
-        """Time for final language model head projection."""
-        flops = B * L * self.model.hidden_size * self.model.vocab_size * self.flops_per_mac
+    for component, value in breakdown.items():
+        if isinstance(value, dict):
+            # Check if it's a standard compute/memory breakdown
+            if 'compute' in value and 'memory' in value:
+                time = value['total']
+                bottleneck = value.get('bottleneck', 'unknown')
+                print(f"\n{component}:")
+                print(f"  Compute:    {value['compute']*1000:>8.4f}ms")
+                print(f"  Memory:     {value['memory']*1000:>8.4f}ms")
+                print(f"  Bottleneck: {bottleneck}")
+                print(f"  Total:      {value['total']*1000:>8.4f}ms")
+            else:
+                # attention_compute has different structure
+                time = value['total']
+                print(f"\n{component}:")
+                for key, val in value.items():
+                    if key != 'total':
+                        print(f"  {key:15s}: {val*1000:>8.4f}ms")
+                print(f"  {'total':15s}: {value['total']*1000:>8.4f}ms")
+        else:
+            time = value
+            print(f"\n{component}: {value*1000:.4f}ms")
         
-        compute_time = flops / (self.gpu.compute_tflops * 1e12)
-        
-        weight_bytes = self.model.hidden_size * self.model.vocab_size * self.bytes_per_param
-        memory_time = weight_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
-        
-        return max(compute_time, memory_time)
+        total_time += time if not isinstance(value, dict) else value['total']
     
-    def estimate_kv_cache_size(self, batch_size: int, max_seq_length: int) -> float:
-        """Estimate KV cache memory size in GB."""
-        kv_cache_elements = (2 * self.model.n_layers * batch_size * 
-                            max_seq_length * self.model.hidden_size)
-        kv_cache_bytes = kv_cache_elements * self.bytes_per_activation
-        kv_cache_gb = kv_cache_bytes / (1024 ** 3)
-        
-        return kv_cache_gb
+    print(f"\n{'='*70}")
+    print(f"TOTAL PER LAYER: {total_time*1000:.4f}ms")
+    print(f"{'='*70}")
+
+
+def main():
+    print("\n" + "#"*70)
+    print("# Detailed Component Breakdown")
+    print("#"*70)
+    
+    # Configuration
+    model = get_model("llama-7b")
+    gpu = get_gpu("A100-80GB")
+    parallel = ParallelismSpec(tensor_parallel_size=1)
+    comm_strategy = create_megatron_tp_strategy()
+    
+    perf_model = DetailedPerformanceModel(model, gpu, parallel, comm_strategy)
+    
+    print(f"\nModel: {model.name}")
+    print(f"GPU: {gpu.name}")
+    print(f"TP: {parallel.tensor_parallel_size}")
+    
+    # === PREFILL BREAKDOWN ===
+    batch_size = 8
+    seq_length = 512
+    
+    prefill_breakdown = perf_model.breakdown_prefill(batch_size, seq_length)
+    print_breakdown(
+        prefill_breakdown,
+        f"PREFILL (Batch={batch_size}, SeqLen={seq_length})"
+    )
+    
+    # === DECODE BREAKDOWN ===
+    kv_cache_length = 512
+    
+    decode_breakdown = perf_model.breakdown_decode(batch_size, kv_cache_length)
+    print_breakdown(
+        decode_breakdown,
+        f"DECODE (Batch={batch_size}, KV_Cache={kv_cache_length})"
+    )
+    
+    # === COMPARISON ===
+    print(f"\n{'='*70}")
+    print("KEY INSIGHTS")
+    print(f"{'='*70}")
+    
+    print("\nPREFILL:")
+    print("  - Compute-bound (lots of matrix multiplications)")
+    print("  - QKV projection and attention dominate")
+    print("  - Batch size helps amortize costs")
+    
+    print("\nDECODE:")
+    print("  - Memory-bound (KV cache reads dominate!)")
+    print("  - Each token needs to read all previous KV cache")
+    print("  - Longer sequences = slower decode")
+    print("  - This is why FlashAttention, PagedAttention help")
+    
+    print(f"\n{'='*70}\n")
+
+
+if __name__ == "__main__":
+    main()

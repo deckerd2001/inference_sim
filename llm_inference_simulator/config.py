@@ -344,3 +344,37 @@ class GPUCatalog:
                 print(f"{name:<20} ERROR: {e}")
         
         print("="*90 + "\n")
+
+
+# Import communication strategies
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .communication import TPCommunicationStrategy
+
+
+@dataclass
+class ParallelismSpecV2:
+    """
+    Enhanced parallelization strategy with communication control.
+    """
+    # Parallel dimensions
+    tensor_parallel_size: int = 1
+    data_parallel_size: int = 1
+    pipeline_parallel_size: int = 1
+    expert_parallel_size: int = 1
+    
+    # Pipeline settings
+    pipeline_schedule: str = "1f1b"
+    microbatch_size: int = 1
+    
+    # Communication strategy (will be set at runtime)
+    tp_communication_strategy: Optional['TPCommunicationStrategy'] = None
+    
+    # Use sequence parallelism
+    use_sequence_parallel: bool = False
+    
+    # Enable communication-computation overlap
+    enable_comm_overlap: bool = False
+    
+    # Layer assignment for pipeline stages
+    stage_layer_assignment: Optional[List[Tuple[int, int]]] = None

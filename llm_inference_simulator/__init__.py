@@ -1,62 +1,107 @@
 """
-LLM Inference Simulator - Event-driven simulation of LLM inference performance.
-
-This package provides tools to simulate the performance of Large Language Model
-inference systems, including prefill and decode phases, with support for various
-parallelization strategies and hardware configurations.
+LLM Inference Simulator Package
 """
 
-from .simulator import LLMInferenceSimulator, SimulationMetrics
 from .config import (
-    SimulatorConfig,
     ModelSpec,
-    WorkloadSpec,
     GPUSpec,
     ClusterSpec,
     InterconnectSpec,
     ParallelismSpec,
+    WorkloadSpec,
     SchedulerSpec,
+    SimulatorConfig,
     DataType,
-    PositionalEncoding,
 )
-from .request import Request, Batch, RequestStatus
-from .scheduler import Scheduler, PriorityScheduler, create_scheduler
+
+from .request import Request, RequestStatus, Batch, BatchManager
+
+from .scheduler import Scheduler, create_scheduler
+
 from .performance_model import PerformanceModel
-from .events import Event, EventType
+
+from .memory_manager import MemoryManager, MemoryUsage
+
+from .simulator import LLMInferenceSimulator, SimulationMetrics
+
+from .events import (
+    Event,
+    EventType,
+    RequestArrivedEvent,
+    RequestTokenizedEvent,
+    PrefillStartedEvent,
+    PrefillFinishedEvent,
+    DecodeStepStartedEvent,
+    DecodeStepFinishedEvent,
+    TokenEmittedEvent,
+    RequestFinishedEvent,
+)
+
+from .communication import (
+    CollectiveOp,
+    CommunicationAlgorithm,
+    CommunicationPattern,
+    TPCommunicationStrategy,
+    estimate_collective_time,
+    create_megatron_tp_strategy,
+    create_sequence_parallel_strategy,
+)
+
+# Catalog imports
 from .gpu_catalog import GPUCatalog, get_gpu
+from .model_catalog import ModelCatalog, get_model
 
 __version__ = "0.1.0"
-__author__ = "LLM Inference Simulator Team"
 
 __all__ = [
-    # Main simulator
-    "LLMInferenceSimulator",
-    "SimulationMetrics",
-    
-    # Configuration
-    "SimulatorConfig",
+    # Config
     "ModelSpec",
-    "WorkloadSpec",
     "GPUSpec",
     "ClusterSpec",
     "InterconnectSpec",
     "ParallelismSpec",
+    "WorkloadSpec",
     "SchedulerSpec",
+    "SimulatorConfig",
     "DataType",
-    "PositionalEncoding",
-    
-    # GPU Catalog
-    "GPUCatalog",
-    "get_gpu",
-    
-    # Core components
+    # Request
     "Request",
-    "Batch",
     "RequestStatus",
+    "Batch",
+    "BatchManager",
+    # Scheduler
     "Scheduler",
-    "PriorityScheduler",
     "create_scheduler",
+    # Performance
     "PerformanceModel",
+    # Memory
+    "MemoryManager",
+    "MemoryUsage",
+    # Simulator
+    "LLMInferenceSimulator",
+    "SimulationMetrics",
+    # Events
     "Event",
     "EventType",
+    "RequestArrivedEvent",
+    "RequestTokenizedEvent",
+    "PrefillStartedEvent",
+    "PrefillFinishedEvent",
+    "DecodeStepStartedEvent",
+    "DecodeStepFinishedEvent",
+    "TokenEmittedEvent",
+    "RequestFinishedEvent",
+    # Communication
+    "CollectiveOp",
+    "CommunicationAlgorithm",
+    "CommunicationPattern",
+    "TPCommunicationStrategy",
+    "estimate_collective_time",
+    "create_megatron_tp_strategy",
+    "create_sequence_parallel_strategy",
+    # Catalogs
+    "GPUCatalog",
+    "get_gpu",
+    "ModelCatalog",
+    "get_model",
 ]
