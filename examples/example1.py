@@ -76,7 +76,7 @@ def example_llama70b_multi_gpu():
         model_spec=get_model("llama2-70b"),
         workload_spec=WorkloadSpec(
             avg_input_length=1024,
-            max_input_length=4096,
+            max_input_length=2048,
             avg_output_length=256,
             max_output_length=1024,
             arrival_rate=1.0,  # 1 request per second
@@ -144,6 +144,7 @@ def example_high_load():
             batching_type="continuous",
             batching_window_ms=5.0,
             token_level_scheduling=True,
+            max_batch_size=None,
         ),
         simulation_duration_s=300.0,
         random_seed=42,
@@ -163,8 +164,8 @@ def main():
 
     # Run examples
     example_llama70b_single_gpu()
-    # example_llama70b_multi_gpu()
-    # example_high_load()
+    example_llama70b_multi_gpu()
+    example_high_load()
 
     print("\n" + "#"*70)
     print("# All examples completed!")

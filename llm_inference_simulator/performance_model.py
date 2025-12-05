@@ -1,10 +1,12 @@
 """
 Performance modeling for LLM inference.
 Calculates compute, memory, and communication costs for Prefill and Decode phases.
+
+Each component uses the roofline model: time = max(compute_time, memory_time)
 """
 
 import math
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 from .config import ModelSpec, GPUSpec, ParallelismSpec, DataType
 from .communication import (
     TPCommunicationStrategy,
@@ -21,6 +23,8 @@ class PerformanceModel:
     - Compute costs (FLOPs) for attention and MLP
     - Memory costs (bytes transferred)
     - Communication costs for parallelism
+    
+    Each component is modeled separately with roofline analysis.
     """
     
     def __init__(self, model_spec: ModelSpec, gpu_spec: GPUSpec, 
@@ -44,6 +48,8 @@ class PerformanceModel:
         # FLOPS per operation (2 for multiply-add)
         self.flops_per_mac = 2
     
+    # ========== HIGH-LEVEL ESTIMATION ==========
+    
     def estimate_prefill_time(self, batch_size: int, seq_length: int) -> float:
         """
         Estimate time for prefill phase.
@@ -58,10 +64,7 @@ class PerformanceModel:
         breakdown = self.breakdown_prefill(batch_size, seq_length)
         
         # Sum up all components
-        per_layer_time = sum(
-            val['total'] if isinstance(val, dict) else val 
-            for val in breakdown.values()
-        )
+        per_layer_time = self._sum_breakdown(breakdown)
         
         # Total for all layers
         total_time = per_layer_time * self.model.n_layers
@@ -86,10 +89,7 @@ class PerformanceModel:
         breakdown = self.breakdown_decode(batch_size, kv_cache_length)
         
         # Sum up all components
-        per_layer_time = sum(
-            val['total'] if isinstance(val, dict) else val 
-            for val in breakdown.values()
-        )
+        per_layer_time = self._sum_breakdown(breakdown)
         
         # Total for all layers
         total_time = per_layer_time * self.model.n_layers
@@ -99,11 +99,13 @@ class PerformanceModel:
         
         return total_time + lm_head_time
     
-    # ========== DETAILED BREAKDOWN METHODS ==========
+    # ========== DETAILED BREAKDOWN ==========
     
-    def breakdown_prefill(self, batch_size: int, seq_length: int) -> dict:
+    def breakdown_prefill(self, batch_size: int, seq_length: int) -> Dict[str, Any]:
         """
         Get detailed breakdown of prefill time by component.
+        
+        Each component includes roofline analysis where applicable.
         
         Args:
             batch_size: Batch size
@@ -114,123 +116,33 @@ class PerformanceModel:
         """
         B, L = batch_size, seq_length
         H = self.model.hidden_size
-        D_ff = self.model.ffn_dim
         
         breakdown = {}
         
         # === ATTENTION BLOCK ===
-        
-        # 1. Input LayerNorm / RMSNorm
         breakdown['attention_norm'] = self._norm_time(B, L, H)
-        
-        # 2. QKV Projection
-        qkv_flops = 3 * B * L * H * H * self.flops_per_mac
-        qkv_flops /= self.parallel.tensor_parallel_size
-        qkv_compute = qkv_flops / (self.gpu.compute_tflops * 1e12)
-        
-        qkv_memory = (3 * H * H * self.bytes_per_param / 
-                      self.parallel.tensor_parallel_size / 
-                      (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['qkv_projection'] = {
-            'compute': qkv_compute,
-            'memory': qkv_memory,
-            'total': max(qkv_compute, qkv_memory),
-            'bottleneck': 'compute' if qkv_compute > qkv_memory else 'memory'
-        }
-        
-        # 3. Attention Computation (QK^T, Softmax, Attention*V)
-        qk_flops = B * self.model.n_heads * L * L * self.head_dim * self.flops_per_mac
-        qk_compute = qk_flops / (self.gpu.compute_tflops * 1e12)
-        
-        attn_v_flops = B * self.model.n_heads * L * L * self.head_dim * self.flops_per_mac
-        attn_v_compute = attn_v_flops / (self.gpu.compute_tflops * 1e12)
-        
-        # Softmax is memory-bound
-        softmax_memory = (B * self.model.n_heads * L * L * 4 / 
-                         (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['attention_compute'] = {
-            'qk_matmul': qk_compute,
-            'softmax': softmax_memory,
-            'attn_v_matmul': attn_v_compute,
-            'total': qk_compute + softmax_memory + attn_v_compute
-        }
-        
-        # 4. Output Projection
-        out_flops = B * L * H * H * self.flops_per_mac
-        out_flops /= self.parallel.tensor_parallel_size
-        out_compute = out_flops / (self.gpu.compute_tflops * 1e12)
-        
-        out_memory = (H * H * self.bytes_per_param / 
-                     self.parallel.tensor_parallel_size / 
-                     (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['attention_output_proj'] = {
-            'compute': out_compute,
-            'memory': out_memory,
-            'total': max(out_compute, out_memory),
-            'bottleneck': 'compute' if out_compute > out_memory else 'memory'
-        }
-        
-        # 5. Attention Communication
-        activation_size = B * L * H * self.bytes_per_activation
-        breakdown['attention_communication'] = self._get_comm_time(activation_size)
+        breakdown['qkv_projection'] = self._qkv_projection_time(B, L)
+        breakdown['attention_compute'] = self._attention_compute_time(B, L, L)
+        breakdown['attention_output_proj'] = self._linear_layer_time(B, L, H, H)
+        breakdown['attention_communication'] = self._attention_comm_time(B, L)
         
         # === MLP BLOCK ===
-        
-        # 6. MLP LayerNorm / RMSNorm
         breakdown['mlp_norm'] = self._norm_time(B, L, H)
+        breakdown['mlp_up_proj'] = self._linear_layer_time(B, L, H, self.model.ffn_dim)
+        breakdown['mlp_activation'] = self._activation_time(B, L, self.model.ffn_dim)
+        breakdown['mlp_down_proj'] = self._linear_layer_time(B, L, self.model.ffn_dim, H)
+        breakdown['mlp_communication'] = self._mlp_comm_time(B, L)
         
-        # 7. MLP Up Projection
-        up_flops = B * L * H * D_ff * self.flops_per_mac
-        up_flops /= self.parallel.tensor_parallel_size
-        up_compute = up_flops / (self.gpu.compute_tflops * 1e12)
-        
-        up_memory = (H * D_ff * self.bytes_per_param / 
-                    self.parallel.tensor_parallel_size / 
-                    (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['mlp_up_proj'] = {
-            'compute': up_compute,
-            'memory': up_memory,
-            'total': max(up_compute, up_memory),
-            'bottleneck': 'compute' if up_compute > up_memory else 'memory'
-        }
-        
-        # 8. Activation Function
-        activation_memory = (B * L * D_ff * self.bytes_per_activation / 
-                           (self.gpu.memory_bandwidth_gbs * 1e9))
-        breakdown['mlp_activation'] = activation_memory
-        
-        # 9. MLP Down Projection
-        down_flops = B * L * D_ff * H * self.flops_per_mac
-        down_flops /= self.parallel.tensor_parallel_size
-        down_compute = down_flops / (self.gpu.compute_tflops * 1e12)
-        
-        down_memory = (D_ff * H * self.bytes_per_param / 
-                      self.parallel.tensor_parallel_size / 
-                      (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['mlp_down_proj'] = {
-            'compute': down_compute,
-            'memory': down_memory,
-            'total': max(down_compute, down_memory),
-            'bottleneck': 'compute' if down_compute > down_memory else 'memory'
-        }
-        
-        # 10. MLP Communication
-        breakdown['mlp_communication'] = self._get_comm_time(activation_size)
-        
-        # 11. KV Cache Write
-        kv_cache_bytes = 2 * B * L * H * self.bytes_per_activation
-        breakdown['kv_cache_write'] = kv_cache_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        # === KV CACHE ===
+        breakdown['kv_cache_write'] = self._kv_cache_write_time(B, L)
         
         return breakdown
     
-    def breakdown_decode(self, batch_size: int, kv_cache_length: int) -> dict:
+    def breakdown_decode(self, batch_size: int, kv_cache_length: int) -> Dict[str, Any]:
         """
         Get detailed breakdown of decode time by component.
+        
+        Each component includes roofline analysis where applicable.
         
         Args:
             batch_size: Batch size
@@ -241,153 +153,221 @@ class PerformanceModel:
         """
         B, T = batch_size, kv_cache_length
         H = self.model.hidden_size
-        D_ff = self.model.ffn_dim
         
         breakdown = {}
         
         # === ATTENTION BLOCK ===
-        
-        # 1. Input Norm
         breakdown['attention_norm'] = self._norm_time(B, 1, H)
-        
-        # 2. QKV Projection
-        qkv_flops = 3 * B * H * H * self.flops_per_mac
-        qkv_flops /= self.parallel.tensor_parallel_size
-        qkv_compute = qkv_flops / (self.gpu.compute_tflops * 1e12)
-        
-        qkv_memory = (3 * H * H * self.bytes_per_param / 
-                      self.parallel.tensor_parallel_size / 
-                      (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['qkv_projection'] = {
-            'compute': qkv_compute,
-            'memory': qkv_memory,
-            'total': max(qkv_compute, qkv_memory),
-            'bottleneck': 'compute' if qkv_compute > qkv_memory else 'memory'
-        }
-        
-        # 3. KV Cache Read (MAJOR BOTTLENECK!)
-        kv_cache_read_bytes = 2 * B * T * H * self.bytes_per_activation
-        breakdown['kv_cache_read'] = kv_cache_read_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
-        
-        # 4. Attention Computation
-        qk_flops = B * self.model.n_heads * T * self.head_dim * self.flops_per_mac
-        qk_compute = qk_flops / (self.gpu.compute_tflops * 1e12)
-        
-        attn_v_flops = B * self.model.n_heads * T * self.head_dim * self.flops_per_mac
-        attn_v_compute = attn_v_flops / (self.gpu.compute_tflops * 1e12)
-        
-        softmax_memory = (B * self.model.n_heads * T * 4 / 
-                         (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['attention_compute'] = {
-            'qk_matmul': qk_compute,
-            'softmax': softmax_memory,
-            'attn_v_matmul': attn_v_compute,
-            'total': qk_compute + softmax_memory + attn_v_compute
-        }
-        
-        # 5. Output Projection
-        out_flops = B * H * H * self.flops_per_mac
-        out_flops /= self.parallel.tensor_parallel_size
-        out_compute = out_flops / (self.gpu.compute_tflops * 1e12)
-        
-        out_memory = (H * H * self.bytes_per_param / 
-                     self.parallel.tensor_parallel_size / 
-                     (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['attention_output_proj'] = {
-            'compute': out_compute,
-            'memory': out_memory,
-            'total': max(out_compute, out_memory),
-            'bottleneck': 'compute' if out_compute > out_memory else 'memory'
-        }
-        
-        # 6. Attention Communication
-        activation_size = B * H * self.bytes_per_activation
-        breakdown['attention_communication'] = self._get_comm_time(activation_size)
+        breakdown['qkv_projection'] = self._qkv_projection_time(B, 1)
+        breakdown['kv_cache_read'] = self._kv_cache_read_time(B, T)  # Major bottleneck!
+        breakdown['attention_compute'] = self._attention_compute_time(B, 1, T)
+        breakdown['attention_output_proj'] = self._linear_layer_time(B, 1, H, H)
+        breakdown['attention_communication'] = self._attention_comm_time(B, 1)
         
         # === MLP BLOCK ===
-        
-        # 7. MLP Norm
         breakdown['mlp_norm'] = self._norm_time(B, 1, H)
+        breakdown['mlp_up_proj'] = self._linear_layer_time(B, 1, H, self.model.ffn_dim)
+        breakdown['mlp_activation'] = self._activation_time(B, 1, self.model.ffn_dim)
+        breakdown['mlp_down_proj'] = self._linear_layer_time(B, 1, self.model.ffn_dim, H)
+        breakdown['mlp_communication'] = self._mlp_comm_time(B, 1)
         
-        # 8. MLP Up Projection
-        up_flops = B * H * D_ff * self.flops_per_mac
-        up_flops /= self.parallel.tensor_parallel_size
-        up_compute = up_flops / (self.gpu.compute_tflops * 1e12)
-        
-        up_memory = (H * D_ff * self.bytes_per_param / 
-                    self.parallel.tensor_parallel_size / 
-                    (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['mlp_up_proj'] = {
-            'compute': up_compute,
-            'memory': up_memory,
-            'total': max(up_compute, up_memory),
-            'bottleneck': 'compute' if up_compute > up_memory else 'memory'
-        }
-        
-        # 9. Activation
-        activation_memory = (B * D_ff * self.bytes_per_activation / 
-                           (self.gpu.memory_bandwidth_gbs * 1e9))
-        breakdown['mlp_activation'] = activation_memory
-        
-        # 10. MLP Down Projection
-        down_flops = B * D_ff * H * self.flops_per_mac
-        down_flops /= self.parallel.tensor_parallel_size
-        down_compute = down_flops / (self.gpu.compute_tflops * 1e12)
-        
-        down_memory = (D_ff * H * self.bytes_per_param / 
-                      self.parallel.tensor_parallel_size / 
-                      (self.gpu.memory_bandwidth_gbs * 1e9))
-        
-        breakdown['mlp_down_proj'] = {
-            'compute': down_compute,
-            'memory': down_memory,
-            'total': max(down_compute, down_memory),
-            'bottleneck': 'compute' if down_compute > down_memory else 'memory'
-        }
-        
-        # 11. MLP Communication
-        breakdown['mlp_communication'] = self._get_comm_time(activation_size)
-        
-        # 12. KV Cache Write
-        kv_cache_write_bytes = 2 * B * H * self.bytes_per_activation
-        breakdown['kv_cache_write'] = kv_cache_write_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        # === KV CACHE ===
+        breakdown['kv_cache_write'] = self._kv_cache_write_time(B, 1)
         
         return breakdown
     
-    # ========== HELPER METHODS ==========
+    # ========== COMPONENT FUNCTIONS (with Roofline) ==========
     
-    def _norm_time(self, B: int, L: int, H: int) -> float:
-        """LayerNorm / RMSNorm time (memory-bound)."""
-        norm_bytes = 2 * B * L * H * self.bytes_per_activation
+    def _linear_layer_time(self, batch_size: int, seq_length: int,
+                          input_dim: int, output_dim: int) -> Dict[str, float]:
+        """
+        Generic linear layer: Y = X @ W
+        
+        Applies roofline model: time = max(compute_time, memory_time)
+        
+        Args:
+            batch_size: B
+            seq_length: L
+            input_dim: Input feature dimension
+            output_dim: Output feature dimension
+            
+        Returns:
+            Dict with 'compute', 'memory', 'total', 'bottleneck'
+        """
+        B, L = batch_size, seq_length
+        
+        # Compute time: B * L * input_dim * output_dim FLOPs
+        flops = B * L * input_dim * output_dim * self.flops_per_mac
+        flops /= self.parallel.tensor_parallel_size  # Split across TP
+        compute_time = flops / (self.gpu.compute_tflops * 1e12)
+        
+        # Memory time: Loading weights from HBM
+        weight_bytes = input_dim * output_dim * self.bytes_per_param
+        weight_bytes /= self.parallel.tensor_parallel_size  # Split across TP
+        memory_time = weight_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        
+        # Roofline: Bottleneck is the slower one
+        total_time = max(compute_time, memory_time)
+        bottleneck = 'compute' if compute_time > memory_time else 'memory'
+        
+        return {
+            'compute': compute_time,
+            'memory': memory_time,
+            'total': total_time,
+            'bottleneck': bottleneck
+        }
+    
+    def _qkv_projection_time(self, batch_size: int, seq_length: int) -> Dict[str, float]:
+        """
+        QKV projection: 3 linear layers in parallel.
+        
+        X @ W_q, X @ W_k, X @ W_v (computed together)
+        """
+        H = self.model.hidden_size
+        
+        # 3x the size of a single linear layer
+        flops = 3 * batch_size * seq_length * H * H * self.flops_per_mac
+        flops /= self.parallel.tensor_parallel_size
+        compute_time = flops / (self.gpu.compute_tflops * 1e12)
+        
+        weight_bytes = 3 * H * H * self.bytes_per_param
+        weight_bytes /= self.parallel.tensor_parallel_size
+        memory_time = weight_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        
+        return {
+            'compute': compute_time,
+            'memory': memory_time,
+            'total': max(compute_time, memory_time),
+            'bottleneck': 'compute' if compute_time > memory_time else 'memory'
+        }
+    
+    def _attention_compute_time(self, batch_size: int, query_length: int, 
+                               kv_length: int) -> Dict[str, float]:
+        """
+        Attention computation: QK^T, Softmax, Attention*V
+        
+        Args:
+            query_length: Length of query (L for prefill, 1 for decode)
+            kv_length: Length of key/value (L for prefill, T for decode)
+            
+        Returns:
+            Dict with breakdown of QK matmul, softmax, and attention*V
+        """
+        B = batch_size
+        H = self.model.n_heads
+        D = self.head_dim
+        Q_len = query_length
+        KV_len = kv_length
+        
+        # 1. QK^T: [B, H, Q_len, D] @ [B, H, D, KV_len] -> [B, H, Q_len, KV_len]
+        qk_flops = B * H * Q_len * KV_len * D * self.flops_per_mac
+        qk_compute = qk_flops / (self.gpu.compute_tflops * 1e12)
+        
+        # 2. Softmax: Memory-bound operation
+        # Read scores, compute exp, sum, divide, write back
+        softmax_elements = B * H * Q_len * KV_len
+        softmax_bytes = softmax_elements * 4  # FP32 for numerical stability
+        softmax_time = softmax_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        
+        # 3. Attention * V: [B, H, Q_len, KV_len] @ [B, H, KV_len, D] -> [B, H, Q_len, D]
+        attn_v_flops = B * H * Q_len * KV_len * D * self.flops_per_mac
+        attn_v_compute = attn_v_flops / (self.gpu.compute_tflops * 1e12)
+        
+        total = qk_compute + softmax_time + attn_v_compute
+        
+        return {
+            'qk_matmul': qk_compute,
+            'softmax': softmax_time,
+            'attn_v_matmul': attn_v_compute,
+            'total': total,
+            'bottleneck': 'mixed'  # Has both compute and memory components
+        }
+    
+    def _norm_time(self, batch_size: int, seq_length: int, hidden_size: int) -> float:
+        """
+        LayerNorm / RMSNorm time.
+        
+        Pure memory-bound operation: read input, compute stats, normalize, write output.
+        """
+        # Read + Write (2x)
+        norm_bytes = 2 * batch_size * seq_length * hidden_size * self.bytes_per_activation
         return norm_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
     
-    def _get_comm_time(self, activation_size: float) -> float:
-        """Get communication time for TP."""
+    def _activation_time(self, batch_size: int, seq_length: int, dim: int) -> float:
+        """
+        Activation function (SwiGLU, GELU, etc).
+        
+        Pure memory-bound: read input, apply function, write output.
+        """
+        activation_bytes = 2 * batch_size * seq_length * dim * self.bytes_per_activation
+        return activation_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+    
+    def _kv_cache_read_time(self, batch_size: int, kv_length: int) -> float:
+        """
+        KV cache read time (decode phase).
+        
+        This is often the bottleneck in decode!
+        Must read all previous K and V for attention computation.
+        
+        Pure memory operation.
+        """
+        # 2 = K and V
+        kv_bytes = 2 * batch_size * kv_length * self.model.hidden_size * self.bytes_per_activation
+        return kv_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+    
+    def _kv_cache_write_time(self, batch_size: int, seq_length: int) -> float:
+        """
+        KV cache write time.
+        
+        Write newly computed K and V to cache.
+        Pure memory operation.
+        """
+        kv_bytes = 2 * batch_size * seq_length * self.model.hidden_size * self.bytes_per_activation
+        return kv_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+    
+    def _attention_comm_time(self, batch_size: int, seq_length: int) -> float:
+        """Communication time for attention output (Tensor Parallelism)."""
         if self.parallel.tensor_parallel_size == 1:
             return 0.0
+        
+        activation_size = batch_size * seq_length * self.model.hidden_size * self.bytes_per_activation
         
         return estimate_collective_time(
             self.tp_comm_strategy.attention_output.collective_op,
             activation_size,
             self.parallel.tensor_parallel_size,
             self.gpu.memory_bandwidth_gbs,
-            5.0,
+            5.0,  # latency_us
             self.tp_comm_strategy.attention_output.algorithm,
         )
     
-    def _embedding_time(self, B: int, L: int) -> float:
-        """Time for embedding lookup (prefill)."""
-        embed_bytes = B * L * self.model.hidden_size * self.bytes_per_activation
+    def _mlp_comm_time(self, batch_size: int, seq_length: int) -> float:
+        """Communication time for MLP output (Tensor Parallelism)."""
+        if self.parallel.tensor_parallel_size == 1:
+            return 0.0
+        
+        activation_size = batch_size * seq_length * self.model.hidden_size * self.bytes_per_activation
+        
+        return estimate_collective_time(
+            self.tp_comm_strategy.mlp_down_projection.collective_op,
+            activation_size,
+            self.parallel.tensor_parallel_size,
+            self.gpu.memory_bandwidth_gbs,
+            5.0,
+            self.tp_comm_strategy.mlp_down_projection.algorithm,
+        )
+    
+    # ========== HELPER METHODS ==========
+    
+    def _embedding_time(self, batch_size: int, seq_length: int) -> float:
+        """Time for embedding lookup (prefill only)."""
+        embed_bytes = batch_size * seq_length * self.model.hidden_size * self.bytes_per_activation
         return embed_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
     
-    def _lm_head_time(self, B: int, L: int) -> float:
+    def _lm_head_time(self, batch_size: int, seq_length: int) -> float:
         """Time for final language model head projection."""
-        flops = B * L * self.model.hidden_size * self.model.vocab_size * self.flops_per_mac
-        
+        flops = (batch_size * seq_length * self.model.hidden_size * 
+                self.model.vocab_size * self.flops_per_mac)
         compute_time = flops / (self.gpu.compute_tflops * 1e12)
         
         weight_bytes = self.model.hidden_size * self.model.vocab_size * self.bytes_per_param
@@ -395,8 +375,27 @@ class PerformanceModel:
         
         return max(compute_time, memory_time)
     
+    def _sum_breakdown(self, breakdown: Dict[str, Any]) -> float:
+        """Sum all component times from breakdown."""
+        total = 0.0
+        for key, val in breakdown.items():
+            if isinstance(val, dict):
+                total += val['total']
+            else:
+                total += val
+        return total
+    
     def estimate_kv_cache_size(self, batch_size: int, max_seq_length: int) -> float:
-        """Estimate KV cache memory size in GB."""
+        """
+        Estimate KV cache memory size in GB.
+        
+        Args:
+            batch_size: Number of sequences
+            max_seq_length: Maximum sequence length
+            
+        Returns:
+            KV cache size in GB
+        """
         kv_cache_elements = (2 * self.model.n_layers * batch_size * 
                             max_seq_length * self.model.hidden_size)
         kv_cache_bytes = kv_cache_elements * self.bytes_per_activation

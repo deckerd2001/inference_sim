@@ -192,15 +192,17 @@ class MemoryManager:
         kv_memory_needed = self.calculate_batch_kv_cache_memory(requests)
 
         # Calculate activation memory needed
+        # See docs/memory_calculation.md for detailed explanation
         if is_prefill:
-            # For prefill, use max input length in batch
+            # Prefill: Process all input tokens at once
+            # Memory scales with longest sequence (due to padding)
             max_input_length = max(req.input_length for req in requests)
             activation_memory = self.calculate_activation_memory(
                 len(requests), max_input_length
             )
         else:
-            # For decode, sequence length is smaller (just 1 token generation)
-            # But KV cache is larger
+            # Decode: Generate 1 token but attend to entire KV cache
+            # Memory scales with longest accumulated context
             max_kv_length = max(req.current_kv_cache_length for req in requests)
             activation_memory = self.calculate_activation_memory(
                 len(requests), max_kv_length
