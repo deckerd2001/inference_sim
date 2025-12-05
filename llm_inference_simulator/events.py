@@ -1,43 +1,39 @@
 """
-Event classes for the LLM Inference Simulator.
-All events are timestamped and processed in chronological order.
+Event definitions for the simulator.
 """
 
 from dataclasses import dataclass
-from typing import Optional, List
 from enum import Enum
+from typing import Optional
 
 
 class EventType(Enum):
     """Types of events in the simulation."""
     REQUEST_ARRIVED = "request_arrived"
     REQUEST_TOKENIZED = "request_tokenized"
-    BATCH_FORMED = "batch_formed"
     PREFILL_STARTED = "prefill_started"
     PREFILL_FINISHED = "prefill_finished"
     DECODE_STEP_STARTED = "decode_step_started"
     DECODE_STEP_FINISHED = "decode_step_finished"
     TOKEN_EMITTED = "token_emitted"
     REQUEST_FINISHED = "request_finished"
+    BATCHING_WAKEUP = "batching_wakeup"  # NEW
 
 
 @dataclass
 class Event:
     """Base class for all events."""
-    timestamp: float  # Simulation time in seconds
+    timestamp: float
     event_type: EventType
     
     def __lt__(self, other):
-        """For priority queue ordering."""
+        """Compare events by timestamp for priority queue."""
         return self.timestamp < other.timestamp
-    
-    def __repr__(self):
-        return f"{self.event_type.value}@{self.timestamp:.6f}s"
 
 
 @dataclass
 class RequestArrivedEvent(Event):
-    """Event when a new inference request arrives."""
+    """A new request has arrived."""
     request_id: int
     input_text: str
     requested_output_tokens: int
@@ -52,7 +48,7 @@ class RequestArrivedEvent(Event):
 
 @dataclass
 class RequestTokenizedEvent(Event):
-    """Event when input text is tokenized."""
+    """Request has been tokenized."""
     request_id: int
     input_length: int
     
@@ -63,23 +59,8 @@ class RequestTokenizedEvent(Event):
 
 
 @dataclass
-class BatchFormedEvent(Event):
-    """Event when a batch is formed for processing."""
-    batch_id: int
-    request_ids: List[int]
-    is_prefill: bool  # True for prefill, False for decode
-    
-    def __init__(self, timestamp: float, batch_id: int, 
-                 request_ids: List[int], is_prefill: bool):
-        super().__init__(timestamp, EventType.BATCH_FORMED)
-        self.batch_id = batch_id
-        self.request_ids = request_ids
-        self.is_prefill = is_prefill
-
-
-@dataclass
 class PrefillStartedEvent(Event):
-    """Event when prefill computation starts."""
+    """Prefill phase has started."""
     batch_id: int
     
     def __init__(self, timestamp: float, batch_id: int):
@@ -89,7 +70,7 @@ class PrefillStartedEvent(Event):
 
 @dataclass
 class PrefillFinishedEvent(Event):
-    """Event when prefill computation finishes."""
+    """Prefill phase has finished."""
     batch_id: int
     
     def __init__(self, timestamp: float, batch_id: int):
@@ -99,9 +80,9 @@ class PrefillFinishedEvent(Event):
 
 @dataclass
 class DecodeStepStartedEvent(Event):
-    """Event when a decode step starts."""
+    """A decode step has started."""
     batch_id: int
-    step: int  # Which token position we're generating
+    step: int
     
     def __init__(self, timestamp: float, batch_id: int, step: int):
         super().__init__(timestamp, EventType.DECODE_STEP_STARTED)
@@ -111,7 +92,7 @@ class DecodeStepStartedEvent(Event):
 
 @dataclass
 class DecodeStepFinishedEvent(Event):
-    """Event when a decode step finishes."""
+    """A decode step has finished."""
     batch_id: int
     step: int
     
@@ -123,23 +104,35 @@ class DecodeStepFinishedEvent(Event):
 
 @dataclass
 class TokenEmittedEvent(Event):
-    """Event when a token is generated and can be sent to client."""
+    """A token has been generated."""
     request_id: int
-    token_position: int
+    token_id: int
+    token_text: str
     
-    def __init__(self, timestamp: float, request_id: int, token_position: int):
+    def __init__(self, timestamp: float, request_id: int, 
+                 token_id: int, token_text: str):
         super().__init__(timestamp, EventType.TOKEN_EMITTED)
         self.request_id = request_id
-        self.token_position = token_position
+        self.token_id = token_id
+        self.token_text = token_text
 
 
 @dataclass
 class RequestFinishedEvent(Event):
-    """Event when a request completes (EOS or max length reached)."""
+    """A request has finished."""
     request_id: int
     total_output_tokens: int
     
-    def __init__(self, timestamp: float, request_id: int, total_output_tokens: int):
+    def __init__(self, timestamp: float, request_id: int, 
+                 total_output_tokens: int):
         super().__init__(timestamp, EventType.REQUEST_FINISHED)
         self.request_id = request_id
         self.total_output_tokens = total_output_tokens
+
+
+@dataclass
+class BatchingWakeupEvent(Event):
+    """Wakeup event to check if batching window has expired."""
+    
+    def __init__(self, timestamp: float):
+        super().__init__(timestamp, EventType.BATCHING_WAKEUP)

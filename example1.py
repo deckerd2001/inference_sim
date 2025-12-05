@@ -80,7 +80,7 @@ def example_llama70b_multi_gpu():
             max_input_length=4096,
             avg_output_length=256,
             max_output_length=1024,
-            arrival_rate=1.0,  # 1 request per second
+            arrival_rate=10.0,  # 1 request per second
             batch_size=16,
         ),
         cluster_spec=ClusterSpec(

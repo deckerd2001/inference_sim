@@ -245,18 +245,21 @@ class LLMInferenceSimulator:
 
     def _create_request_arrival(self, arrival_time: float):
         """Create a request arrival event."""
-        # Sample input and output lengths
-        input_length = int(max(1, np.random.normal(
+        # Sample input length
+        input_length = int(np.random.normal(
             self.config.workload_spec.avg_input_length,
             self.config.workload_spec.input_length_std
-        )))
-        input_length = min(input_length, self.config.workload_spec.max_input_length)
+        ))
+        # Clamp to valid range
+        input_length = max(1, min(input_length, self.config.workload_spec.max_input_length))
 
-        output_length = int(max(1, np.random.normal(
+        # Sample output length
+        output_length = int(np.random.normal(
             self.config.workload_spec.avg_output_length,
             self.config.workload_spec.output_length_std
-        )))
-        output_length = min(output_length, self.config.workload_spec.max_output_length)
+        ))
+        # Clamp to valid range (CRITICAL: avoid negative values!)
+        output_length = max(1, min(output_length, self.config.workload_spec.max_output_length))
 
         # Create event
         event = RequestArrivedEvent(
@@ -281,9 +284,13 @@ class LLMInferenceSimulator:
             self._handle_decode_step_finished(event)
         elif event.event_type == EventType.REQUEST_FINISHED:
             self._handle_request_finished(event)
+        elif event.event_type == EventType.BATCHING_WAKEUP:
+            # Just trigger scheduling
+            pass
 
         # After processing, try to schedule new work
         self._try_schedule_work()
+
 
     def _handle_request_arrived(self, event: RequestArrivedEvent):
         """Handle a new request arrival."""
@@ -321,6 +328,15 @@ class LLMInferenceSimulator:
             request.tokenization_time = event.timestamp
             self.scheduler.add_request(request)
 
+    def _schedule_batching_wakeup(self):
+        """Schedule a wakeup event for batching window expiration."""
+        wakeup_time = self.scheduler.get_next_wakeup_time(self.current_time)
+
+        if wakeup_time is not None:
+            from .events import BatchingWakeupEvent
+            wakeup_event = BatchingWakeupEvent(timestamp=wakeup_time)
+            self.schedule_event(wakeup_event)
+
     def _try_schedule_work(self):
         """
         Try to schedule prefill or decode work if GPU is idle.
@@ -328,6 +344,8 @@ class LLMInferenceSimulator:
         CRITICAL: Decode has higher priority than Prefill!
         """
         if self.is_gpu_busy:
+            # Schedule wakeup if waiting for batching window
+            self._schedule_batching_wakeup()
             return
 
         # DECODE FIRST (ongoing requests)
@@ -337,8 +355,8 @@ class LLMInferenceSimulator:
         elif self.scheduler.can_schedule_prefill(self.current_time):
             self._schedule_prefill()
         else:
-            # GPU is idle
-            pass
+            # GPU idle, waiting for batching window
+            self._schedule_batching_wakeup()
 
     def _schedule_prefill(self):
         """Schedule a prefill batch with dynamic memory-based sizing."""
@@ -516,18 +534,33 @@ class LLMInferenceSimulator:
                 )
                 self.schedule_event(finish_event)
 
-        # Remove finished requests
+        # Remove finished requests from batch
         if finished_requests:
             self.scheduler.remove_finished_requests(finished_requests)
             batch.remove_finished_requests()
 
-        # Remove batch if all requests finished
+        # Check if batch is finished
         if batch.is_batch_finished:
+            # All requests done, remove batch
+            self.scheduler.batch_manager.remove_batch(batch)
+            # GPU is now idle
+            self.is_gpu_busy = False
+            self.current_batch = None
+        else:
+            # CRITICAL FIX: Batch not finished, put requests back to decode queue
+            # for next iteration
+            for req in batch.requests:
+                req.status = RequestStatus.QUEUED
+
+            # Move remaining requests back to decode queue
+            self.scheduler.decode_queue.extend(batch.requests)
+
+            # Remove batch (will be recreated in next schedule)
             self.scheduler.batch_manager.remove_batch(batch)
 
-        # GPU is now idle
-        self.is_gpu_busy = False
-        self.current_batch = None
+            # GPU is now idle and will pick up decode queue
+            self.is_gpu_busy = False
+            self.current_batch = None
 
     def _handle_request_finished(self, event: RequestFinishedEvent):
         """Handle request completion."""

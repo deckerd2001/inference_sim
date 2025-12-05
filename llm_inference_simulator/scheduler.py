@@ -30,25 +30,74 @@ class Scheduler:
         self.prefill_queue.append(request)
     
     def can_schedule_prefill(self, current_time: float) -> bool:
-        """Check if we can schedule a prefill batch."""
-        return len(self.prefill_queue) > 0
+        """
+        Check if we can schedule a prefill batch.
+        
+        Two strategies:
+        - Greedy: Schedule immediately if queue not empty (default)
+        - Windowed: Wait for min_batch_size or timeout
+        """
+        if len(self.prefill_queue) == 0:
+            return False
+        
+        # GREEDY: Process immediately (like vLLM, TGI)
+        if self.spec.batching_strategy == "greedy":
+            return True
+        
+        # WINDOWED: Wait for batch to fill
+        elif self.spec.batching_strategy == "windowed":
+            # Check if minimum batch size reached
+            if len(self.prefill_queue) >= self.spec.min_batch_size:
+                return True
+            
+            # Check if batching window expired for oldest request
+            oldest_request = self.prefill_queue[0]
+            time_in_queue = current_time - oldest_request.arrival_time
+            batching_window_s = self.spec.batching_window_ms / 1000.0
+            
+            if time_in_queue >= batching_window_s:
+                return True
+            
+            return False
+        
+        return False
     
     def can_schedule_decode(self) -> bool:
         """Check if we can schedule a decode batch."""
         return len(self.decode_queue) > 0
     
+    def get_next_wakeup_time(self, current_time: float) -> Optional[float]:
+        """
+        Get next wakeup time for batching window (only for windowed strategy).
+        
+        Returns None if no wakeup needed.
+        """
+        # Greedy doesn't need wakeup
+        if self.spec.batching_strategy == "greedy":
+            return None
+        
+        if len(self.prefill_queue) == 0:
+            return None
+        
+        # If already have enough requests, no wakeup needed
+        if len(self.prefill_queue) >= self.spec.min_batch_size:
+            return None
+        
+        # Calculate when oldest request will hit batching window
+        oldest_request = self.prefill_queue[0]
+        batching_window_s = self.spec.batching_window_ms / 1000.0
+        wakeup_time = oldest_request.arrival_time + batching_window_s
+        
+        # Only schedule wakeup if it's in the future
+        if wakeup_time > current_time:
+            return wakeup_time
+        
+        return None
+    
     def schedule_prefill_batch(self, current_time: float, 
                               memory_checker: Optional[Callable] = None) -> Optional[Batch]:
         """
-        Schedule a prefill batch.
-        
-        Args:
-            current_time: Current simulation time
-            memory_checker: Optional callable(requests, is_prefill) -> (bool, str)
-                          for dynamic batch sizing
-        
-        Returns:
-            Batch or None
+        Schedule a prefill batch with dynamic memory-based sizing.
         """
         if not self.can_schedule_prefill(current_time):
             return None
@@ -91,14 +140,14 @@ class Scheduler:
         if not batch_requests:
             return None
         
-        # Create batch with required arguments
+        # Create batch
         batch = self.batch_manager.create_batch(
             batch_requests,
             is_prefill=True,
             current_time=current_time
         )
         
-        # Update request status (use correct enum value)
+        # Update request status
         for req in batch_requests:
             req.status = RequestStatus.PREFILLING
         
@@ -107,14 +156,7 @@ class Scheduler:
     def schedule_decode_batch(self, current_time: float,
                              memory_checker: Optional[Callable] = None) -> Optional[Batch]:
         """
-        Schedule a decode batch.
-        
-        Args:
-            current_time: Current simulation time
-            memory_checker: Optional callable for dynamic batch sizing
-        
-        Returns:
-            Batch or None
+        Schedule a decode batch with dynamic memory-based sizing.
         """
         if not self.can_schedule_decode():
             return None
@@ -156,14 +198,14 @@ class Scheduler:
         if not batch_requests:
             return None
         
-        # Create batch with required arguments
+        # Create batch
         batch = self.batch_manager.create_batch(
             batch_requests,
             is_prefill=False,
             current_time=current_time
         )
         
-        # Update request status (use correct enum value)
+        # Update request status
         for req in batch_requests:
             req.status = RequestStatus.DECODING
         
