@@ -4,28 +4,7 @@ Configuration classes for the LLM inference simulator.
 
 from dataclasses import dataclass
 from typing import Optional
-from enum import Enum
-
-
-class DataType(Enum):
-    """Data types for model parameters and activations."""
-    FP32 = "fp32"
-    FP16 = "fp16"
-    BF16 = "bf16"
-    INT8 = "int8"
-    
-    def bytes_per_element(self) -> int:
-        """Return bytes per element."""
-        if self == DataType.FP32:
-            return 4
-        elif self == DataType.FP16:
-            return 2
-        elif self == DataType.BF16:
-            return 2
-        elif self == DataType.INT8:
-            return 1
-        else:
-            raise ValueError(f"Unknown data type: {self}")
+from .xpu_spec import DataType  # Import from xpu_spec now
 
 
 @dataclass
@@ -45,15 +24,6 @@ class ModelSpec:
 
 
 @dataclass
-class GPUSpec:
-    """GPU hardware specification."""
-    name: str
-    memory_size_gb: float
-    compute_tflops: float
-    memory_bandwidth_gbs: float
-
-
-@dataclass
 class InterconnectSpec:
     """Interconnect specification for multi-GPU communication."""
     intra_node_type: str = "NVLink"
@@ -67,14 +37,15 @@ class InterconnectSpec:
 @dataclass
 class ClusterSpec:
     """Cluster configuration."""
-    n_gpus_per_node: int
+    n_xpus_per_node: int  # Renamed from n_gpus_per_node
     n_nodes: int = 1
-    gpu_spec: Optional[GPUSpec] = None
+    xpu_spec: Optional['xPUSpec'] = None  # xPU instead of GPU
     interconnect_spec: Optional[InterconnectSpec] = None
     
     @property
-    def total_gpus(self) -> int:
-        return self.n_gpus_per_node * self.n_nodes
+    def total_xpus(self) -> int:
+        """Total number of xPUs in cluster."""
+        return self.n_xpus_per_node * self.n_nodes
 
 
 @dataclass
@@ -99,14 +70,14 @@ class WorkloadSpec:
     arrival_rate: float = 1.0
     arrival_process: str = "poisson"
     
-    batch_size: int = 8
+    batch_size: int = 8  # Legacy, used for some examples
 
 
 @dataclass
 class SchedulerSpec:
     """Scheduler configuration."""
     batching_type: str = "continuous"
-    max_batch_size: Optional[int] = 32
+    max_batch_size: Optional[int] = None  # None = dynamic batching
     token_level_scheduling: bool = True
     
     # Batching strategy
@@ -156,7 +127,7 @@ class SimulatorConfig:
             errors.append("simulation_duration_s must be positive")
         
         # 2. Parallelism validation
-        total_gpus = self.cluster_spec.total_gpus
+        total_xpus = self.cluster_spec.total_xpus
         tp_size = self.parallelism_spec.tensor_parallel_size
         pp_size = self.parallelism_spec.pipeline_parallel_size
         dp_size = self.parallelism_spec.data_parallel_size
@@ -172,35 +143,35 @@ class SimulatorConfig:
         
         # Check total parallelism
         total_parallel = tp_size * pp_size * dp_size
-        if total_parallel > total_gpus:
+        if total_parallel > total_xpus:
             errors.append(
                 f"Total parallelism ({tp_size}×{pp_size}×{dp_size}={total_parallel}) "
-                f"exceeds available GPUs ({total_gpus})"
+                f"exceeds available xPUs ({total_xpus})"
             )
         
-        if total_parallel < total_gpus:
+        if total_parallel < total_xpus:
             warnings.append(
-                f"Underutilization: Using {total_parallel} GPUs out of {total_gpus} available"
+                f"Underutilization: Using {total_parallel} xPUs out of {total_xpus} available"
             )
         
         # 3. Memory validation (rough estimate)
-        if self.cluster_spec.gpu_spec:
-            gpu_memory = self.cluster_spec.gpu_spec.memory_size_gb
+        if self.cluster_spec.xpu_spec:
+            xpu_memory = self.cluster_spec.xpu_spec.memory_size_gb
             model_params = self.model_spec.n_params
             bytes_per_param = self.model_spec.weight_dtype.bytes_per_element()
             
-            # Model memory per GPU with TP
+            # Model memory per xPU with TP
             model_memory_gb = (model_params * bytes_per_param) / (1024**3) / tp_size
             
-            if model_memory_gb > gpu_memory:
+            if model_memory_gb > xpu_memory:
                 errors.append(
-                    f"Model weights ({model_memory_gb:.2f}GB per GPU with TP={tp_size}) "
-                    f"exceed GPU memory ({gpu_memory:.1f}GB). "
-                    f"Increase tensor_parallel_size or use larger GPUs."
+                    f"Model weights ({model_memory_gb:.2f}GB per xPU with TP={tp_size}) "
+                    f"exceed xPU memory ({xpu_memory:.1f}GB). "
+                    f"Increase tensor_parallel_size or use larger xPUs."
                 )
             
             # Check if reasonable memory left for KV cache
-            available_memory = gpu_memory - model_memory_gb - 2.0  # 2GB safety
+            available_memory = xpu_memory - model_memory_gb - 2.0  # 2GB safety
             if available_memory < 10.0:
                 warnings.append(
                     f"Only {available_memory:.1f}GB available for KV cache. "
@@ -250,11 +221,11 @@ class SimulatorConfig:
         print(f"  Hidden size: {self.model_spec.hidden_size}")
         
         print(f"\nCluster:")
-        print(f"  GPUs: {self.cluster_spec.total_gpus} "
-              f"({self.cluster_spec.n_nodes} nodes × {self.cluster_spec.n_gpus_per_node} GPUs)")
-        if self.cluster_spec.gpu_spec:
-            print(f"  GPU: {self.cluster_spec.gpu_spec.name} "
-                  f"({self.cluster_spec.gpu_spec.memory_size_gb:.0f}GB)")
+        print(f"  xPUs: {self.cluster_spec.total_xpus} "
+              f"({self.cluster_spec.n_nodes} nodes × {self.cluster_spec.n_xpus_per_node} xPUs)")
+        if self.cluster_spec.xpu_spec:
+            print(f"  xPU: {self.cluster_spec.xpu_spec.name} "
+                  f"({self.cluster_spec.xpu_spec.memory_size_gb:.0f}GB)")
         
         print(f"\nParallelism:")
         print(f"  Tensor Parallel: {self.parallelism_spec.tensor_parallel_size}")

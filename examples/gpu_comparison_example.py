@@ -15,7 +15,7 @@ from llm_inference_simulator import (
     SchedulerSpec,
     GPUCatalog,
     get_model,
-    get_gpu
+    get_xpu
 )
 
 
@@ -52,9 +52,9 @@ def compare_gpus():
                 arrival_rate=10.0,
             ),
             cluster_spec=ClusterSpec(
-                n_gpus_per_node=4,
+                n_xpus_per_node=4,
                 n_nodes=1,
-                gpu_spec=GPUCatalog.get_gpu(gpu_name),  # 여기!
+                xpu_spec=GPUCatalog.get_xpu(gpu_name),  # 여기!
             ),
             parallelism_spec=ParallelismSpec(
                 tensor_parallel_size=4,

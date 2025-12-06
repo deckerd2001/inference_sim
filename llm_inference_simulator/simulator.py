@@ -35,7 +35,7 @@ class SimulationMetrics:
     # System-level metrics
     total_simulation_time: float = 0.0
 
-    # GPU utilization tracking
+    # xPU utilization tracking
     gpu_busy_time: float = 0.0
     gpu_idle_time: float = 0.0
 
@@ -62,7 +62,7 @@ class SimulationMetrics:
                 self.total_tokens_generated / self.total_simulation_time
             )
 
-        # GPU utilization
+        # xPU utilization
         total_time = self.gpu_busy_time + self.gpu_idle_time
         if total_time > 0:
             stats["gpu_utilization"] = self.gpu_busy_time / total_time
@@ -131,14 +131,14 @@ class LLMInferenceSimulator:
         # Initialize memory manager
         self.memory_manager = MemoryManager(
             config.model_spec,
-            config.cluster_spec.gpu_spec,
+            config.cluster_spec.xpu_spec,
             config.parallelism_spec
         )
 
         # Initialize performance model with optional communication strategy
         self.performance_model = PerformanceModel(
             config.model_spec,
-            config.cluster_spec.gpu_spec,
+            config.cluster_spec.xpu_spec,
             config.parallelism_spec,
             tp_comm_strategy=tp_comm_strategy
         )
@@ -169,7 +169,7 @@ class LLMInferenceSimulator:
         """Run the simulation."""
         print(f"Starting simulation...")
         print(f"Configuration: {self.config.model_spec.name}, "
-              f"{self.config.cluster_spec.total_gpus} GPUs, "
+              f"{self.config.cluster_spec.total_xpus} xPUs, "
               f"arrival_rate={self.config.workload_spec.arrival_rate} req/s")
 
         # Print memory info
@@ -339,7 +339,7 @@ class LLMInferenceSimulator:
 
     def _try_schedule_work(self):
         """
-        Try to schedule prefill or decode work if GPU is idle.
+        Try to schedule prefill or decode work if xPU is idle.
 
         CRITICAL: Decode has higher priority than Prefill!
         """
@@ -355,7 +355,7 @@ class LLMInferenceSimulator:
         elif self.scheduler.can_schedule_prefill(self.current_time):
             self._schedule_prefill()
         else:
-            # GPU idle, waiting for batching window
+            # xPU idle, waiting for batching window
             self._schedule_batching_wakeup()
 
     def _schedule_prefill(self):
@@ -416,7 +416,7 @@ class LLMInferenceSimulator:
         )
         self.schedule_event(finish_event)
 
-        # Track GPU busy time
+        # Track xPU busy time
         self.metrics.gpu_busy_time += prefill_time
 
     def _handle_prefill_finished(self, event: PrefillFinishedEvent):
@@ -442,7 +442,7 @@ class LLMInferenceSimulator:
         # Remove batch
         self.scheduler.batch_manager.remove_batch(batch)
 
-        # GPU is now idle
+        # xPU is now idle
         self.is_gpu_busy = False
         self.current_batch = None
 
@@ -492,7 +492,7 @@ class LLMInferenceSimulator:
         )
         self.schedule_event(finish_event)
 
-        # Track GPU busy time
+        # Track xPU busy time
         self.metrics.gpu_busy_time += decode_time
 
     def _handle_decode_step_finished(self, event: DecodeStepFinishedEvent):
@@ -543,7 +543,7 @@ class LLMInferenceSimulator:
         if batch.is_batch_finished:
             # All requests done, remove batch
             self.scheduler.batch_manager.remove_batch(batch)
-            # GPU is now idle
+            # xPU is now idle
             self.is_gpu_busy = False
             self.current_batch = None
         else:
@@ -558,7 +558,7 @@ class LLMInferenceSimulator:
             # Remove batch (will be recreated in next schedule)
             self.scheduler.batch_manager.remove_batch(batch)
 
-            # GPU is now idle and will pick up decode queue
+            # xPU is now idle and will pick up decode queue
             self.is_gpu_busy = False
             self.current_batch = None
 
@@ -602,7 +602,7 @@ class LLMInferenceSimulator:
         print(f"  Requests/sec: {stats.get('throughput_requests_per_sec', 0):.2f}")
         print(f"  Tokens/sec: {stats.get('throughput_tokens_per_sec', 0):.2f}")
 
-        print(f"\nGPU Utilization: {stats.get('gpu_utilization', 0)*100:.1f}%")
+        print(f"\nxPU Utilization: {stats.get('gpu_utilization', 0)*100:.1f}%")
 
         # Memory statistics (Peak + P95 + P50)
         if 'memory_peak_gb' in stats:

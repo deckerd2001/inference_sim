@@ -4,7 +4,8 @@ Memory management for GPU memory tracking and scheduling decisions.
 
 from dataclasses import dataclass
 from typing import List, Optional
-from .config import ModelSpec, GPUSpec, ParallelismSpec, DataType
+from .config import ModelSpec, ParallelismSpec
+from .xpu_spec import DataType, xPUSpec
 from .request import Request, Batch
 
 
@@ -38,10 +39,10 @@ class MemoryManager:
     - Prevent OOM by rejecting requests
     """
 
-    def __init__(self, model_spec: ModelSpec, gpu_spec: GPUSpec,
+    def __init__(self, model_spec: ModelSpec, xpu_spec: xPUSpec,
                  parallelism_spec: ParallelismSpec):
         self.model = model_spec
-        self.gpu = gpu_spec
+        self.xpu = xpu_spec
         self.parallel = parallelism_spec
 
         # Calculate static memory (model weights)
@@ -56,7 +57,7 @@ class MemoryManager:
 
         # Available memory for dynamic allocation
         self.available_memory_gb = (
-            self.gpu.memory_size_gb -
+            self.xpu.memory_size_gb -
             self.model_memory_gb -
             self.memory_safety_margin_gb
         )
@@ -64,7 +65,7 @@ class MemoryManager:
         if self.available_memory_gb < 0:
             raise ValueError(
                 f"Model weights ({self.model_memory_gb:.2f}GB) exceed "
-                f"GPU memory ({self.gpu.memory_size_gb}GB)!"
+                f"GPU memory ({self.xpu.memory_size_gb}GB)!"
             )
 
     def _calculate_model_memory(self) -> float:
@@ -297,13 +298,13 @@ class MemoryManager:
         usage = self.get_memory_usage()
 
         return {
-            "total_memory_gb": self.gpu.memory_size_gb,
+            "total_memory_gb": self.xpu.memory_size_gb,
             "model_weights_gb": self.model_memory_gb,
             "safety_margin_gb": self.memory_safety_margin_gb,
             "available_for_kv_cache_gb": self.available_memory_gb,
             "current_kv_cache_gb": self.current_kv_cache_gb,
             "current_activation_gb": self.current_activation_gb,
             "current_used_gb": usage.total_gb,
-            "current_free_gb": self.gpu.memory_size_gb - usage.total_gb,
-            "memory_utilization": usage.total_gb / self.gpu.memory_size_gb,
+            "current_free_gb": self.xpu.memory_size_gb - usage.total_gb,
+            "memory_utilization": usage.total_gb / self.xpu.memory_size_gb,
         }

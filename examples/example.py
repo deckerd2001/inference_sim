@@ -17,7 +17,7 @@ from llm_inference_simulator import (
     ParallelismSpec,
     SchedulerSpec,
     get_model,  # ✅ 카탈로그 사용
-    get_gpu,    # ✅ 카탈로그 사용
+    get_xpu,    # ✅ 카탈로그 사용
 )
 
 
@@ -40,9 +40,9 @@ def example_llama7b_single_gpu():
             batch_size=8,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=1,
+            n_xpus_per_node=1,
             n_nodes=1,
-            gpu_spec=get_gpu("A100-80GB"),  # ✅ 카탈로그 사용
+            xpu_spec=get_xpu("A100-80GB"),  # ✅ 카탈로그 사용
         ),
         parallelism_spec=ParallelismSpec(
             tensor_parallel_size=1,
@@ -84,9 +84,9 @@ def example_llama70b_multi_gpu():
             batch_size=16,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=8,
+            n_xpus_per_node=8,
             n_nodes=1,
-            gpu_spec=get_gpu("A100-80GB"),  # ✅ 카탈로그 사용
+            xpu_spec=get_xpu("A100-80GB"),  # ✅ 카탈로그 사용
             interconnect_spec=InterconnectSpec(
                 intra_node_type="NVLink",
                 intra_node_bandwidth_gbs=600.0,
@@ -133,9 +133,9 @@ def example_high_load():
             batch_size=32,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=4,
+            n_xpus_per_node=4,
             n_nodes=1,
-            gpu_spec=get_gpu("A100-80GB"),  # ✅ 카탈로그 사용
+            xpu_spec=get_xpu("A100-80GB"),  # ✅ 카탈로그 사용
         ),
         parallelism_spec=ParallelismSpec(
             tensor_parallel_size=4,
@@ -177,9 +177,9 @@ def example_h100_comparison():
             batch_size=16,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=1,
+            n_xpus_per_node=1,
             n_nodes=1,
-            gpu_spec=get_gpu("H100-80GB"),  # ✅ 카탈로그 사용
+            xpu_spec=get_xpu("H100-80GB"),  # ✅ 카탈로그 사용
         ),
         parallelism_spec=ParallelismSpec(
             tensor_parallel_size=1,
@@ -207,9 +207,9 @@ def example_h100_comparison():
             batch_size=16,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=1,
+            n_xpus_per_node=1,
             n_nodes=1,
-            gpu_spec=get_gpu("A100-80GB"),  # ✅ 카탈로그 사용
+            xpu_spec=get_xpu("A100-80GB"),  # ✅ 카탈로그 사용
         ),
         parallelism_spec=ParallelismSpec(
             tensor_parallel_size=1,
@@ -269,9 +269,9 @@ def example_memory_stress_test():
             batch_size=32,  # Try large batch
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=1,
+            n_xpus_per_node=1,
             n_nodes=1,
-            gpu_spec=get_gpu("A10-24GB"),  # Only 24GB memory!
+            xpu_spec=get_xpu("A10-24GB"),  # Only 24GB memory!
         ),
         parallelism_spec=ParallelismSpec(
             tensor_parallel_size=1,

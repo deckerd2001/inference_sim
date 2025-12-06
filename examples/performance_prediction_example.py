@@ -8,7 +8,7 @@ sys.path.insert(0, '.')
 
 from llm_inference_simulator import (
     get_model,
-    get_gpu,
+    get_xpu,
     ParallelismSpec,
 )
 from llm_inference_simulator.performance_model import PerformanceModel
@@ -24,7 +24,7 @@ def predict_performance():
     
     # Configuration
     model = get_model("llama-7b")
-    gpu = get_gpu("A100-80GB")
+    gpu = get_xpu("A100-80GB")
     parallel = ParallelismSpec(tensor_parallel_size=1)
     comm_strategy = create_megatron_tp_strategy()
     
@@ -89,7 +89,7 @@ def compare_gpus():
     
     baseline = None
     for gpu_name in gpus_to_test:
-        gpu = get_gpu(gpu_name)
+        gpu = get_xpu(gpu_name)
         perf_model = PerformanceModel(model, gpu, parallel, comm_strategy)
         
         prefill_time = perf_model.estimate_prefill_time(batch_size, input_len)
@@ -115,7 +115,7 @@ def analyze_tp_scaling():
     print("="*70)
     
     model = get_model("llama2-70b")  # Large model
-    gpu = get_gpu("A100-80GB")
+    gpu = get_xpu("A100-80GB")
     comm_strategy = create_megatron_tp_strategy()
     
     batch_size = 16

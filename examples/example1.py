@@ -17,16 +17,16 @@ from llm_inference_simulator import (
     ParallelismSpec,
     SchedulerSpec,
     get_model,
-    get_gpu,
+    get_xpu,  # Changed!
 )
 
 
-def example_llama70b_single_gpu():
+def example_llama70b_dual_gpu():
     """
-    Example: LLaMA-7B on a single A100-80GB GPU.
+    Example 1: LLaMA-70B on 2x A100-80GB with TP=2.
     """
     print("\n" + "="*70)
-    print("Example 1: LLaMA-7B on Single A100-80GB")
+    print("Example 1: LLaMA-70B with TP=2 on 2x A100-80GB")
     print("="*70)
 
     config = SimulatorConfig(
@@ -36,13 +36,13 @@ def example_llama70b_single_gpu():
             max_input_length=2048,
             avg_output_length=128,
             max_output_length=512,
-            arrival_rate=2.0,  # 2 requests per second
+            arrival_rate=2.0,
             batch_size=8,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=2,
+            n_xpus_per_node=2,  # Changed!
             n_nodes=1,
-            gpu_spec=get_gpu("A100-80GB"),
+            xpu_spec=get_xpu("A100-80GB"),  # Changed!
         ),
         parallelism_spec=ParallelismSpec(
             tensor_parallel_size=2,
@@ -53,20 +53,18 @@ def example_llama70b_single_gpu():
             batching_type="continuous",
             token_level_scheduling=True,
         ),
-        simulation_duration_s=300.0,  # 1 minute simulation
+        simulation_duration_s=300.0,
         random_seed=42,
     )
 
-    # Run simulation
     simulator = LLMInferenceSimulator(config)
     metrics = simulator.run()
-
     return metrics
 
 
 def example_llama70b_multi_gpu():
     """
-    Example: LLaMA-70B with Tensor Parallelism on 8x A100-80GB.
+    Example 2: LLaMA-70B with Tensor Parallelism on 8x A100-80GB.
     """
     print("\n" + "="*70)
     print("Example 2: LLaMA-70B with TP=8 on 8x A100-80GB")
@@ -78,14 +76,14 @@ def example_llama70b_multi_gpu():
             avg_input_length=1024,
             max_input_length=2048,
             avg_output_length=256,
-            max_output_length=1024,
-            arrival_rate=1.0,  # 1 request per second
+            max_output_length=512,
+            arrival_rate=1.0,
             batch_size=16,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=8,
+            n_xpus_per_node=8,  # Changed!
             n_nodes=1,
-            gpu_spec=get_gpu("A100-80GB"),
+            xpu_spec=get_xpu("A100-80GB"),  # Changed!
             interconnect_spec=InterconnectSpec(
                 intra_node_type="NVLink",
                 intra_node_bandwidth_gbs=600.0,
@@ -105,16 +103,14 @@ def example_llama70b_multi_gpu():
         random_seed=42,
     )
 
-    # Run simulation
     simulator = LLMInferenceSimulator(config)
     metrics = simulator.run()
-
     return metrics
 
 
 def example_high_load():
     """
-    Example: Testing system under high load.
+    Example 3: Testing system under high load.
     """
     print("\n" + "="*70)
     print("Example 3: High Load Test (200 req/s)")
@@ -127,13 +123,13 @@ def example_high_load():
             max_input_length=1024,
             avg_output_length=64,
             max_output_length=256,
-            arrival_rate=200.0,  # High load: 10 requests per second
+            arrival_rate=200.0,
             batch_size=32,
         ),
         cluster_spec=ClusterSpec(
-            n_gpus_per_node=4,
+            n_xpus_per_node=4,  # Changed!
             n_nodes=1,
-            gpu_spec=get_gpu("A100-80GB"),
+            xpu_spec=get_xpu("A100-80GB"),  # Changed!
         ),
         parallelism_spec=ParallelismSpec(
             tensor_parallel_size=4,
@@ -144,17 +140,15 @@ def example_high_load():
             batching_type="continuous",
             batching_window_ms=5.0,
             token_level_scheduling=True,
-            max_batch_size=None,
         ),
         simulation_duration_s=300.0,
         random_seed=42,
     )
 
-    # Run simulation
     simulator = LLMInferenceSimulator(config)
     metrics = simulator.run()
-
     return metrics
+
 
 def main():
     """Run all examples."""
@@ -163,7 +157,7 @@ def main():
     print("#"*70)
 
     # Run examples
-    example_llama70b_single_gpu()
+    example_llama70b_dual_gpu()
     example_llama70b_multi_gpu()
     example_high_load()
 

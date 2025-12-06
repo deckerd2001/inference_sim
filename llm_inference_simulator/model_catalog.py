@@ -266,3 +266,8 @@ def get_model(name: str) -> ModelSpec:
         ModelSpec object
     """
     return ModelCatalog.get_model(name)
+
+
+def list_models():
+    """List all available models."""
+    return sorted(_MODEL_CATALOG.keys())

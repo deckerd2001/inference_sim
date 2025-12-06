@@ -7,7 +7,8 @@ Each component uses the roofline model: time = max(compute_time, memory_time)
 
 import math
 from typing import Tuple, Optional, Dict, Any
-from .config import ModelSpec, GPUSpec, ParallelismSpec, DataType
+from .config import ModelSpec, ParallelismSpec
+from .xpu_spec import DataType, OperationType, xPUSpec
 from .communication import (
     TPCommunicationStrategy,
     estimate_collective_time,
@@ -27,11 +28,11 @@ class PerformanceModel:
     Each component is modeled separately with roofline analysis.
     """
     
-    def __init__(self, model_spec: ModelSpec, gpu_spec: GPUSpec, 
+    def __init__(self, model_spec: ModelSpec, xpu_spec: xPUSpec, 
                  parallelism_spec: ParallelismSpec,
                  tp_comm_strategy: Optional[TPCommunicationStrategy] = None):
         self.model = model_spec
-        self.gpu = gpu_spec
+        self.xpu = xpu_spec
         self.parallel = parallelism_spec
         
         # Communication strategy
@@ -199,12 +200,12 @@ class PerformanceModel:
         # Compute time: B * L * input_dim * output_dim FLOPs
         flops = B * L * input_dim * output_dim * self.flops_per_mac
         flops /= self.parallel.tensor_parallel_size  # Split across TP
-        compute_time = flops / (self.gpu.compute_tflops * 1e12)
+        compute_time = flops / (self.xpu.get_matmul_tflops(self.model.weight_dtype) * 1e12)
         
         # Memory time: Loading weights from HBM
         weight_bytes = input_dim * output_dim * self.bytes_per_param
         weight_bytes /= self.parallel.tensor_parallel_size  # Split across TP
-        memory_time = weight_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        memory_time = weight_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
         
         # Roofline: Bottleneck is the slower one
         total_time = max(compute_time, memory_time)
@@ -228,11 +229,11 @@ class PerformanceModel:
         # 3x the size of a single linear layer
         flops = 3 * batch_size * seq_length * H * H * self.flops_per_mac
         flops /= self.parallel.tensor_parallel_size
-        compute_time = flops / (self.gpu.compute_tflops * 1e12)
+        compute_time = flops / (self.xpu.get_matmul_tflops(self.model.weight_dtype) * 1e12)
         
         weight_bytes = 3 * H * H * self.bytes_per_param
         weight_bytes /= self.parallel.tensor_parallel_size
-        memory_time = weight_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        memory_time = weight_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
         
         return {
             'compute': compute_time,
@@ -261,17 +262,17 @@ class PerformanceModel:
         
         # 1. QK^T: [B, H, Q_len, D] @ [B, H, D, KV_len] -> [B, H, Q_len, KV_len]
         qk_flops = B * H * Q_len * KV_len * D * self.flops_per_mac
-        qk_compute = qk_flops / (self.gpu.compute_tflops * 1e12)
+        qk_compute = qk_flops / (self.xpu.get_matmul_tflops(self.model.weight_dtype) * 1e12)
         
         # 2. Softmax: Memory-bound operation
         # Read scores, compute exp, sum, divide, write back
         softmax_elements = B * H * Q_len * KV_len
         softmax_bytes = softmax_elements * 4  # FP32 for numerical stability
-        softmax_time = softmax_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        softmax_time = softmax_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
         
         # 3. Attention * V: [B, H, Q_len, KV_len] @ [B, H, KV_len, D] -> [B, H, Q_len, D]
         attn_v_flops = B * H * Q_len * KV_len * D * self.flops_per_mac
-        attn_v_compute = attn_v_flops / (self.gpu.compute_tflops * 1e12)
+        attn_v_compute = attn_v_flops / (self.xpu.get_matmul_tflops(self.model.weight_dtype) * 1e12)
         
         total = qk_compute + softmax_time + attn_v_compute
         
@@ -291,7 +292,7 @@ class PerformanceModel:
         """
         # Read + Write (2x)
         norm_bytes = 2 * batch_size * seq_length * hidden_size * self.bytes_per_activation
-        return norm_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        return norm_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
     
     def _activation_time(self, batch_size: int, seq_length: int, dim: int) -> float:
         """
@@ -300,7 +301,7 @@ class PerformanceModel:
         Pure memory-bound: read input, apply function, write output.
         """
         activation_bytes = 2 * batch_size * seq_length * dim * self.bytes_per_activation
-        return activation_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        return activation_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
     
     def _kv_cache_read_time(self, batch_size: int, kv_length: int) -> float:
         """
@@ -313,7 +314,7 @@ class PerformanceModel:
         """
         # 2 = K and V
         kv_bytes = 2 * batch_size * kv_length * self.model.hidden_size * self.bytes_per_activation
-        return kv_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        return kv_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
     
     def _kv_cache_write_time(self, batch_size: int, seq_length: int) -> float:
         """
@@ -323,7 +324,7 @@ class PerformanceModel:
         Pure memory operation.
         """
         kv_bytes = 2 * batch_size * seq_length * self.model.hidden_size * self.bytes_per_activation
-        return kv_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        return kv_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
     
     def _attention_comm_time(self, batch_size: int, seq_length: int) -> float:
         """Communication time for attention output (Tensor Parallelism)."""
@@ -336,7 +337,7 @@ class PerformanceModel:
             self.tp_comm_strategy.attention_output.collective_op,
             activation_size,
             self.parallel.tensor_parallel_size,
-            self.gpu.memory_bandwidth_gbs,
+            self.xpu.memory_bandwidth_gbs,
             5.0,  # latency_us
             self.tp_comm_strategy.attention_output.algorithm,
         )
@@ -352,7 +353,7 @@ class PerformanceModel:
             self.tp_comm_strategy.mlp_down_projection.collective_op,
             activation_size,
             self.parallel.tensor_parallel_size,
-            self.gpu.memory_bandwidth_gbs,
+            self.xpu.memory_bandwidth_gbs,
             5.0,
             self.tp_comm_strategy.mlp_down_projection.algorithm,
         )
@@ -362,16 +363,16 @@ class PerformanceModel:
     def _embedding_time(self, batch_size: int, seq_length: int) -> float:
         """Time for embedding lookup (prefill only)."""
         embed_bytes = batch_size * seq_length * self.model.hidden_size * self.bytes_per_activation
-        return embed_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        return embed_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
     
     def _lm_head_time(self, batch_size: int, seq_length: int) -> float:
         """Time for final language model head projection."""
         flops = (batch_size * seq_length * self.model.hidden_size * 
                 self.model.vocab_size * self.flops_per_mac)
-        compute_time = flops / (self.gpu.compute_tflops * 1e12)
+        compute_time = flops / (self.xpu.get_matmul_tflops(self.model.weight_dtype) * 1e12)
         
         weight_bytes = self.model.hidden_size * self.model.vocab_size * self.bytes_per_param
-        memory_time = weight_bytes / (self.gpu.memory_bandwidth_gbs * 1e9)
+        memory_time = weight_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
         
         return max(compute_time, memory_time)
     
