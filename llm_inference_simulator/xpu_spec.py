@@ -85,6 +85,10 @@ class xPUSpec:
     memory_bandwidth_gbs: float
     l2_cache_size_mb: Optional[float] = None
     
+    
+    # Pricing (cloud on-demand pricing, $/hour)
+    price_per_hour: float = 0.0  # $0 = pricing not available
+
     # Compute units (e.g., {"tensor_core": ..., "cuda_core": ...})
     compute_units: Dict[str, ComputeUnit] = field(default_factory=dict)
     

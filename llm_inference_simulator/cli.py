@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""
-Command-line interface for LLM Inference Simulator.
-
-Usage:
-    python -m llm_inference_simulator.cli --config config.json
-    python -m llm_inference_simulator.cli --model llama2-70b --xpu a100 --tp 8 ...
-"""
+"""Command-line interface for LLM Inference Simulator."""
 
 import argparse
 import json
@@ -24,48 +18,6 @@ from . import (
     get_model,
     get_xpu,
 )
-
-
-def create_example_config(output_path: str):
-    """Create an example configuration file."""
-    example_config = {
-        "model": "llama2-70b",
-        "cluster": {
-            "xpu": "a100-80gb",
-            "n_xpus_per_node": 8,
-            "n_nodes": 1,
-            "interconnect": {
-                "intra_node_type": "NVLink",
-                "intra_node_bandwidth_gbs": 600.0,
-                "intra_node_latency_us": 2.0
-            }
-        },
-        "parallelism": {
-            "tensor_parallel_size": 8,
-            "pipeline_parallel_size": 1,
-            "data_parallel_size": 1
-        },
-        "workload": {
-            "avg_input_length": 1024,
-            "max_input_length": 2048,
-            "avg_output_length": 256,
-            "max_output_length": 512,
-            "arrival_rate": 10.0
-        },
-        "scheduler": {
-            "batching_strategy": "greedy",
-            "max_batch_size": None
-        },
-        "simulation_duration_s": 300.0,
-        "random_seed": 42
-    }
-    
-    with open(output_path, 'w') as f:
-        json.dump(example_config, f, indent=2)
-    
-    print(f"✓ Example configuration created: {output_path}")
-    print(f"\nEdit the file and run:")
-    print(f"  python -m llm_inference_simulator.cli --config {output_path}")
 
 
 def load_config_from_json(config_path: str) -> SimulatorConfig:
@@ -144,26 +96,40 @@ def metrics_to_dict(metrics) -> dict:
     result = {}
     
     # Basic metrics
-    for attr in ['total_requests', 'completed_requests', 'simulation_time']:
-        if hasattr(metrics, attr):
-            result[attr] = getattr(metrics, attr)
+    result['total_requests'] = getattr(metrics, 'total_requests', 0)
+    result['completed_requests'] = getattr(metrics, 'completed_requests', 0)
+    result['rejected_requests'] = getattr(metrics, 'rejected_requests', 0)
+    
+    # Simulation time
+    sim_time = getattr(metrics, 'total_simulation_time', 0.0)
+    result['simulation_time'] = sim_time
     
     # Throughput
     result['throughput'] = {}
-    for attr in ['requests_per_sec', 'tokens_per_sec']:
-        if hasattr(metrics, attr):
-            result['throughput'][attr] = float(getattr(metrics, attr))
+    if sim_time > 0:
+        result['throughput']['requests_per_sec'] = result['completed_requests'] / sim_time
+        total_tokens = getattr(metrics, 'total_tokens_generated', 0)
+        result['throughput']['tokens_per_sec'] = total_tokens / sim_time
     
-    # Utilization
-    for attr in ['xpu_utilization']:
-        if hasattr(metrics, attr):
-            result[attr] = float(getattr(metrics, attr))
+    # xPU Utilization
+    gpu_busy = getattr(metrics, 'gpu_busy_time', 0.0)
+    gpu_idle = getattr(metrics, 'gpu_idle_time', 0.0)
+    total_time = gpu_busy + gpu_idle
+    if total_time > 0:
+        result['xpu_utilization'] = gpu_busy / total_time
+    else:
+        result['xpu_utilization'] = 0.0
     
     # Memory
     result['memory'] = {}
-    for attr in ['peak_memory_gb', 'p95_memory_gb', 'p50_memory_gb']:
-        if hasattr(metrics, attr):
-            result['memory'][attr] = float(getattr(metrics, attr))
+    result['memory']['peak_memory_gb'] = getattr(metrics, 'peak_memory_usage_gb', 0.0)
+    
+    # Memory percentiles
+    memory_samples = getattr(metrics, 'memory_samples', [])
+    if memory_samples:
+        mem_array = np.array(memory_samples)
+        result['memory']['p95_memory_gb'] = float(np.percentile(mem_array, 95))
+        result['memory']['p50_memory_gb'] = float(np.percentile(mem_array, 50))
     
     # Latencies
     if hasattr(metrics, 'first_token_latencies') and metrics.first_token_latencies:
@@ -201,127 +167,48 @@ def save_results(metrics, output_path: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='LLM Inference Simulator - Model LLM inference performance',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Create example config
-  python -m llm_inference_simulator.cli --init-config my_config.json
-  
-  # Run with config file
-  python -m llm_inference_simulator.cli --config my_config.json --output results.json
-  
-  # Run with command-line args
-  python -m llm_inference_simulator.cli --model llama2-70b --xpu a100 --tp 8 --arrival-rate 10
-  
-  # Quick test with defaults
-  python -m llm_inference_simulator.cli --summary --duration 10
-        """
+        description='LLM Inference Simulator',
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
-    # Special commands
-    parser.add_argument('--init-config', type=str, metavar='FILE',
-                       help='Create example config file and exit')
+    parser.add_argument('--config', type=str, help='JSON configuration file')
+    parser.add_argument('--model', type=str, default='llama-7b', help='Model name')
+    parser.add_argument('--xpu', type=str, default='a100-80gb', help='xPU type')
+    parser.add_argument('--n-xpus-per-node', type=int, default=1)
+    parser.add_argument('--n-nodes', type=int, default=1)
+    parser.add_argument('--tp', type=int, default=1, help='Tensor parallel size')
+    parser.add_argument('--pp', type=int, default=1, help='Pipeline parallel size')
+    parser.add_argument('--dp', type=int, default=1, help='Data parallel size')
+    parser.add_argument('--avg-input-length', type=int, default=512)
+    parser.add_argument('--max-input-length', type=int, default=1024)
+    parser.add_argument('--avg-output-length', type=int, default=128)
+    parser.add_argument('--max-output-length', type=int, default=256)
+    parser.add_argument('--arrival-rate', type=float, default=2.0)
+    parser.add_argument('--batching-strategy', type=str, default='greedy', choices=['greedy', 'windowed'])
+    parser.add_argument('--max-batch-size', type=int, default=None)
+    parser.add_argument('--duration', type=float, default=60.0)
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--output', type=str, help='Output JSON file')
+    parser.add_argument('--summary', action='store_true', help='Print config summary')
     
-    # Config file option
-    parser.add_argument('--config', type=str, metavar='FILE',
-                       help='Path to JSON configuration file')
-    
-    # Model options
-    parser.add_argument('--model', type=str, default='llama-7b',
-                       help='Model name (llama-7b, llama2-70b, etc.)')
-    
-    # Cluster options
-    parser.add_argument('--xpu', type=str, default='a100-80gb',
-                       help='xPU type (a100, h100, mi300x, tpu-v4, etc.)')
-    parser.add_argument('--n-xpus-per-node', type=int, default=1,
-                       help='Number of xPUs per node')
-    parser.add_argument('--n-nodes', type=int, default=1,
-                       help='Number of nodes')
-    
-    # Parallelism options
-    parser.add_argument('--tp', type=int, default=1,
-                       help='Tensor parallelism size')
-    parser.add_argument('--pp', type=int, default=1,
-                       help='Pipeline parallelism size')
-    parser.add_argument('--dp', type=int, default=1,
-                       help='Data parallelism size')
-    
-    # Workload options
-    parser.add_argument('--avg-input-length', type=int, default=512,
-                       help='Average input sequence length')
-    parser.add_argument('--max-input-length', type=int, default=1024,
-                       help='Maximum input sequence length')
-    parser.add_argument('--avg-output-length', type=int, default=128,
-                       help='Average output sequence length')
-    parser.add_argument('--max-output-length', type=int, default=256,
-                       help='Maximum output sequence length')
-    parser.add_argument('--arrival-rate', type=float, default=2.0,
-                       help='Request arrival rate (requests/second)')
-    
-    # Scheduler options
-    parser.add_argument('--batching-strategy', type=str, default='greedy',
-                       choices=['greedy', 'windowed'],
-                       help='Batching strategy')
-    parser.add_argument('--max-batch-size', type=int, default=None,
-                       help='Maximum batch size (None = dynamic)')
-    
-    # Simulation options
-    parser.add_argument('--duration', type=float, default=60.0,
-                       help='Simulation duration in seconds')
-    parser.add_argument('--seed', type=int, default=42,
-                       help='Random seed for reproducibility')
-    
-    # Output options
-    parser.add_argument('--output', type=str, metavar='FILE',
-                       help='Output JSON file path (optional)')
-    parser.add_argument('--summary', action='store_true',
-                       help='Print configuration summary before running')
-    
-    # Show help if no arguments
     if len(sys.argv) == 1:
         parser.print_help()
-        print("\n" + "="*70)
-        print("📝 Quick Start Guide")
-        print("="*70)
-        print("\n1. Create example configuration:")
-        print("   python -m llm_inference_simulator.cli --init-config example.json")
-        print("\n2. Run with default settings (LLaMA-7B on 1x A100):")
-        print("   python -m llm_inference_simulator.cli --summary")
-        print("\n3. Run with configuration file:")
-        print("   python -m llm_inference_simulator.cli --config example.json")
-        print("\n4. Custom quick run:")
-        print("   python -m llm_inference_simulator.cli \\")
-        print("     --model llama2-70b --xpu h100 --tp 8 --duration 60")
-        print("\n" + "="*70)
-        print("For more help: python -m llm_inference_simulator.cli --help")
-        print("="*70 + "\n")
         return 0
     
     args = parser.parse_args()
     
-    # Handle --init-config
-    if args.init_config:
-        create_example_config(args.init_config)
-        return 0
-    
-    # Load or create configuration
     if args.config:
-        print(f"Loading configuration from: {args.config}")
         config = load_config_from_json(args.config)
     else:
         config = create_config_from_args(args)
     
-    # Print summary if requested
     if args.summary or args.config:
         config.print_summary()
     
-    # Run simulation
     print("\nStarting simulation...")
     simulator = LLMInferenceSimulator(config)
     metrics = simulator.run()
     
-    # Save results if output path specified
     if args.output:
         save_results(metrics, args.output)
     
