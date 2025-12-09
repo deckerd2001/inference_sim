@@ -1,8 +1,0 @@
-{
-  "status": "failed",
-  "error_summary": "Unknown error",
-  "error_log": "results/cluster_benchmark_20251208_174949/mi300x_8xpu_tp8_error.log",
-  "xpu": "mi300x",
-  "n_xpus": 8,
-  "tp": 8
-}

@@ -161,6 +161,11 @@ class LLMInferenceSimulator:
         # Event log (optional)
         self.event_log: List[Event] = [] if config.output_event_log else None
 
+        # Measurement window (for warm-up support)
+        self.measurement_start = self.config.warm_up_duration_s
+        self.measurement_end = self.measurement_start + self.config.simulation_duration_s
+        self.total_duration = self.measurement_end
+
     def schedule_event(self, event: Event):
         """Add an event to the event queue."""
         heapq.heappush(self.event_queue, event)
@@ -201,7 +206,10 @@ class LLMInferenceSimulator:
                 break
 
         # Finalize metrics
-        self.metrics.total_simulation_time = self.current_time
+        self.metrics.total_simulation_time = min(
+            self.current_time - self.measurement_start,
+            self.config.simulation_duration_s
+        ) if self.current_time > self.measurement_start else 0
 
         print(f"\nSimulation completed at t={self.current_time:.2f}s")
         self._print_summary()
@@ -232,7 +240,7 @@ class LLMInferenceSimulator:
                 inter_arrival = random.expovariate(arrival_rate)
                 current_time += inter_arrival
 
-                if current_time < duration:
+                if current_time < self.total_duration:
                     self._create_request_arrival(current_time)
 
         elif self.config.workload_spec.arrival_process == "deterministic":
@@ -509,13 +517,14 @@ class LLMInferenceSimulator:
         for req in batch.requests:
             req.tokens_generated += 1
             req.current_kv_cache_length += 1
-            self.metrics.total_tokens_generated += 1
+            # Token counting moved to _handle_request_finished (measurement window)
 
             # Track first token time
             if req.tokens_generated == 1:
                 req.first_token_time = self.current_time
-                if req.first_token_latency:
-                    self.metrics.first_token_latencies.append(req.first_token_latency)
+                if req.completion_time is not None and req.completion_time >= self.measurement_start and req.completion_time <= self.measurement_end:
+                    if req.first_token_latency:
+                        self.metrics.first_token_latencies.append(req.first_token_latency)
 
             # Check if request is finished
             if req.is_finished:
@@ -564,17 +573,24 @@ class LLMInferenceSimulator:
 
     def _handle_request_finished(self, event: RequestFinishedEvent):
         """Handle request completion."""
-        # Get from completed_requests_map instead of scheduler
         request = self.completed_requests_map.get(event.request_id)
-
-        if request and request.end_to_end_latency:
-            self.metrics.completed_requests += 1
-            self.metrics.end_to_end_latencies.append(request.end_to_end_latency)
+        
+        if request:
+            # Only count if completed in measurement window
+            if request.completion_time is not None and request.completion_time >= self.measurement_start and request.completion_time <= self.measurement_end:
+                self.metrics.completed_requests += 1
+                self.metrics.total_tokens_generated += request.tokens_generated
+                
+                if request.first_token_latency:
+                    self.metrics.first_token_latencies.append(request.first_token_latency)
+                
+                if request.end_to_end_latency:
+                    self.metrics.end_to_end_latencies.append(request.end_to_end_latency)
 
     def _should_stop(self) -> bool:
         """Check if simulation should stop."""
         # Time-based stopping
-        if self.current_time >= self.config.simulation_duration_s:
+        if self.current_time >= self.total_duration:
             return True
 
         # Request count-based stopping
