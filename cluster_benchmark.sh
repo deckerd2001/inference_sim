@@ -76,6 +76,7 @@ for xpu in "${XPUS[@]}"; do
             --avg-output-length $WORKLOAD_AVG_OUTPUT \
             --max-output-length $WORKLOAD_MAX_OUTPUT \
             --arrival-rate $WORKLOAD_ARRIVAL_RATE \
+            --warm-up 20 \
             --duration $SIMULATION_DURATION \
             --seed $RANDOM_SEED \
             --output $result_file \
@@ -86,66 +87,19 @@ for xpu in "${XPUS[@]}"; do
 
         if [ $exit_code -eq 0 ] && [ -f $result_file ]; then
             echo "✓ Completed successfully" | tee -a $LOG_FILE
-
-            metrics=$(python3 << PYTHON
-import json
-try:
-    data = json.load(open('$result_file'))
-    throughput = data.get('throughput', {}).get('tokens_per_sec', 0)
-    completed = data.get('completed_requests', 0)
-    ttft_p95 = data.get('first_token_latency', {}).get('p95', 0)
-    print(f"Throughput: {throughput:.1f} tok/s, Completed: {completed}, P95 TTFT: {ttft_p95:.2f}s")
-except:
-    print("Failed to parse results")
-PYTHON
-)
+            
+            # Extract metrics using helper script
+            metrics=$(python3 scripts/extract_metrics.py "$result_file")
             echo "  $metrics" | tee -a $LOG_FILE
         else
             echo "✗ Failed" | tee -a $LOG_FILE
             echo "$output" > $error_log_file
 
-            error_summary=$(python3 << ERRORPARSE
-import re
-output = """$output"""
-error_msg = "Unknown error"
-if "Configuration validation failed:" in output:
-    lines = output.split('\n')
-    for i, line in enumerate(lines):
-        if "Configuration validation failed:" in line:
-            error_lines = []
-            for j in range(i+1, min(i+5, len(lines))):
-                if lines[j].strip() and not lines[j].startswith('Traceback'):
-                    error_lines.append(lines[j].strip())
-            if error_lines:
-                error_msg = ' '.join(error_lines)
-                break
-elif "ValueError:" in output:
-    match = re.search(r'ValueError: (.+)', output)
-    if match:
-        error_msg = match.group(1).strip()
-elif "Error:" in output:
-    match = re.search(r'(\w+Error): (.+)', output)
-    if match:
-        error_msg = f"{match.group(1)}: {match.group(2).strip()}"
-if len(error_msg) > 200:
-    error_msg = error_msg[:200] + "..."
-print(error_msg)
-ERRORPARSE
-)
-
-            python3 << ERRORJSON
-import json
-error_data = {
-    "status": "failed",
-    "error_summary": """${error_summary}""",
-    "error_log": "${error_log_file}",
-    "xpu": "$xpu",
-    "n_xpus": $n_xpus,
-    "tp": $tp
-}
-with open('$result_file', 'w') as f:
-    json.dump(error_data, f, indent=2)
-ERRORJSON
+            # Parse error using helper script
+            error_summary=$(python3 scripts/parse_error.py "$output")
+            
+            # Create error JSON using helper script
+            python3 scripts/create_error_json.py "$result_file" "$error_summary" "$error_log_file" "$xpu" "$n_xpus" "$tp"
 
             echo "  Error: $error_summary" | tee -a $LOG_FILE
         fi

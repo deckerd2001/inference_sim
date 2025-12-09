@@ -4,7 +4,7 @@
 
 ```bash
 # 의존성 설치
-pip install numpy
+pip install -r requirements.txt
 
 # 패키지 디렉토리로 이동
 cd llm_inference_simulator
@@ -81,11 +81,11 @@ print(f"Speedup: {stats2['throughput_tokens_per_sec'] / stats1['throughput_token
 ```python
 for arrival_rate in [1, 5, 10, 20]:
     config.workload_spec.arrival_rate = arrival_rate
-    
+
     simulator = LLMInferenceSimulator(config)
     metrics = simulator.run()
     stats = metrics.compute_statistics()
-    
+
     print(f"Load: {arrival_rate} req/s")
     print(f"  Throughput: {stats['throughput_tokens_per_sec']:.2f} tokens/sec")
     print(f"  P95 Latency: {stats['first_token_latency']['p95']:.4f}s")
@@ -143,10 +143,10 @@ for name, tflops, mem, bw in gpus:
         memory_size_gb=mem,
         memory_bandwidth_gbs=bw,
     )
-    
+
     metrics = LLMInferenceSimulator(config).run()
     stats = metrics.compute_statistics()
-    
+
     print(f"{name}: {stats['throughput_tokens_per_sec']:.2f} tokens/sec")
 ```
 
@@ -158,10 +158,10 @@ for name, tflops, mem, bw in gpus:
 for batch_size in [1, 2, 4, 8, 16, 32]:
     config.scheduler_spec.max_batch_size = batch_size
     config.workload_spec.batch_size = batch_size
-    
+
     metrics = LLMInferenceSimulator(config).run()
     stats = metrics.compute_statistics()
-    
+
     print(f"Batch {batch_size}: "
           f"{stats['throughput_tokens_per_sec']:.2f} tok/s, "
           f"P95: {stats['first_token_latency']['p95']:.4f}s")
@@ -175,10 +175,10 @@ TP 스케일링 효율성 측정:
 for tp_size in [1, 2, 4, 8]:
     config.parallelism_spec.tensor_parallel_size = tp_size
     config.cluster_spec.n_gpus_per_node = tp_size
-    
+
     metrics = LLMInferenceSimulator(config).run()
     stats = metrics.compute_statistics()
-    
+
     print(f"TP={tp_size}: {stats['throughput_tokens_per_sec']:.2f} tokens/sec")
 ```
 
@@ -190,10 +190,10 @@ for tp_size in [1, 2, 4, 8]:
 for input_len, output_len in [(128, 32), (512, 128), (2048, 512)]:
     config.workload_spec.avg_input_length = input_len
     config.workload_spec.avg_output_length = output_len
-    
+
     metrics = LLMInferenceSimulator(config).run()
     stats = metrics.compute_statistics()
-    
+
     print(f"I/O: {input_len}/{output_len}")
     print(f"  Throughput: {stats['throughput_tokens_per_sec']:.2f}")
     print(f"  P95 TTFT: {stats['first_token_latency']['p95']:.4f}s")
