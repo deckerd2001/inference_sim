@@ -1,0 +1,838 @@
+=======================================================================
+LLM Inference Simulator - TP Scaling Benchmark
+=======================================================================
+Start Time: 2025. 12. 08. (월) 18:06:38 PST
+Random Seed: 19445
+
+⚠️  Note: Only TP (Tensor Parallelism) is implemented
+
+Configuration:
+  Model:           llama2-70b
+  xPUs:            a100-80gb h100-80gb mi300x
+  Arrival Rate:    10.0 req/s
+  Duration:        60.0s
+
+Testing 3 xPUs × 4 TP configs = 12 total tests
+=======================================================================
+
+-----------------------------------------------------------------------
+[1/12] Testing: a100-80gb - TP=1
+  Cluster: 1 xPUs (TP=1)
+-----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/__main__.py", line 219, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/__main__.py", line 203, in main
+    config = create_config_from_args(args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/__main__.py", line 83, in create_config_from_args
+    return SimulatorConfig(
+           ^^^^^^^^^^^^^^^^
+  File "<string>", line 12, in __init__
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/config.py", line 113, in __post_init__
+    self.validate()
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/config.py", line 212, in validate
+    raise ValueError(error_msg.strip())
+ValueError: Configuration validation failed:
+  1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.
+✗ Failed
+  Error: 1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.
+
+-----------------------------------------------------------------------
+[2/12] Testing: a100-80gb - TP=2
+  Cluster: 2 xPUs (TP=2)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 2 xPUs, arrival_rate=10.0 req/s
+Memory: 65.19GB model, 14.81GB available for KV cache
+
+Simulation completed at t=60.03s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    125.8 tok/s
+  Utilization:          1526% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 56
+
+Throughput (= System Capacity):
+  Requests/sec: 0.93
+  Tokens/sec: 125.80
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.97GB / 160GB (50.0%)
+  P95:         79.86GB / 160GB (49.9%)
+  P50 (Med):   75.60GB / 160GB (47.3%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 28.0260
+  P50:  28.8009
+  P90:  49.5266
+  P95:  49.6308
+  P99:  49.7384
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 30.4085
+  P50:  30.9182
+  P90:  47.8020
+  P95:  52.8316
+  P99:  53.6900
+
+Recommendation:
+  System cannot handle workload (15.3x overloaded)
+  For stable operation: Reduce arrival to 0.5 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/a100-80gb_2xpu_tp2.json
+✓ Completed successfully
+  Throughput: 125.8 tok/s, Completed: 56, P95 TTFT: 49.63s
+
+-----------------------------------------------------------------------
+[3/12] Testing: a100-80gb - TP=4
+  Cluster: 4 xPUs (TP=4)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 4 xPUs, arrival_rate=10.0 req/s
+Memory: 32.60GB model, 47.40GB available for KV cache
+
+Simulation completed at t=61.62s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    366.4 tok/s
+  Utilization:          524% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 175
+
+Throughput (= System Capacity):
+  Requests/sec: 2.84
+  Tokens/sec: 366.41
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.34GB / 320GB (24.8%)
+  P95:         79.11GB / 320GB (24.7%)
+  P50 (Med):   67.46GB / 320GB (21.1%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 19.3076
+  P50:  20.7994
+  P90:  33.4977
+  P95:  34.7196
+  P99:  35.9046
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 23.8728
+  P50:  24.1327
+  P90:  38.8405
+  P95:  40.8023
+  P99:  41.6120
+
+Recommendation:
+  System cannot handle workload (5.2x overloaded)
+  For stable operation: Reduce arrival to 1.5 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/a100-80gb_4xpu_tp4.json
+✓ Completed successfully
+  Throughput: 366.4 tok/s, Completed: 175, P95 TTFT: 34.72s
+
+-----------------------------------------------------------------------
+[4/12] Testing: a100-80gb - TP=8
+  Cluster: 8 xPUs (TP=8)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 63.70GB available for KV cache
+
+Simulation completed at t=60.70s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    548.7 tok/s
+  Utilization:          350% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 259
+
+Throughput (= System Capacity):
+  Requests/sec: 4.27
+  Tokens/sec: 548.74
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.93GB / 640GB (12.5%)
+  P95:         79.73GB / 640GB (12.5%)
+  P50 (Med):   53.75GB / 640GB (8.4%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 14.7298
+  P50:  14.6601
+  P90:  26.4456
+  P95:  27.9819
+  P99:  29.0028
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 19.2191
+  P50:  18.9011
+  P90:  30.9881
+  P95:  32.3373
+  P99:  34.4924
+
+Recommendation:
+  System cannot handle workload (3.5x overloaded)
+  For stable operation: Reduce arrival to 2.3 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/a100-80gb_8xpu_tp8.json
+✓ Completed successfully
+  Throughput: 548.7 tok/s, Completed: 259, P95 TTFT: 27.98s
+
+-----------------------------------------------------------------------
+[5/12] Testing: h100-80gb - TP=1
+  Cluster: 1 xPUs (TP=1)
+-----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/__main__.py", line 219, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/__main__.py", line 203, in main
+    config = create_config_from_args(args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/__main__.py", line 83, in create_config_from_args
+    return SimulatorConfig(
+           ^^^^^^^^^^^^^^^^
+  File "<string>", line 12, in __init__
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/config.py", line 113, in __post_init__
+    self.validate()
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/config.py", line 212, in validate
+    raise ValueError(error_msg.strip())
+ValueError: Configuration validation failed:
+  1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.
+✗ Failed
+  Error: 1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.
+
+-----------------------------------------------------------------------
+[6/12] Testing: h100-80gb - TP=2
+  Cluster: 2 xPUs (TP=2)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 2 xPUs, arrival_rate=10.0 req/s
+Memory: 65.19GB model, 14.81GB available for KV cache
+
+Simulation completed at t=60.02s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    222.3 tok/s
+  Utilization:          864% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 105
+
+Throughput (= System Capacity):
+  Requests/sec: 1.75
+  Tokens/sec: 222.32
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.97GB / 160GB (50.0%)
+  P95:         79.88GB / 160GB (49.9%)
+  P50 (Med):   75.44GB / 160GB (47.2%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 26.5847
+  P50:  26.2273
+  P90:  45.7850
+  P95:  48.8409
+  P99:  49.1685
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 27.4531
+  P50:  28.1305
+  P90:  46.0154
+  P95:  47.3592
+  P99:  49.1048
+
+Recommendation:
+  System cannot handle workload (8.6x overloaded)
+  For stable operation: Reduce arrival to 0.9 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/h100-80gb_2xpu_tp2.json
+✓ Completed successfully
+  Throughput: 222.3 tok/s, Completed: 105, P95 TTFT: 48.84s
+
+-----------------------------------------------------------------------
+[7/12] Testing: h100-80gb - TP=4
+  Cluster: 4 xPUs (TP=4)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 4 xPUs, arrival_rate=10.0 req/s
+Memory: 32.60GB model, 47.40GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    708.1 tok/s
+  Utilization:          271% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 320
+
+Throughput (= System Capacity):
+  Requests/sec: 5.33
+  Tokens/sec: 708.05
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.98GB / 320GB (25.0%)
+  P95:         79.34GB / 320GB (24.8%)
+  P50 (Med):   62.75GB / 320GB (19.6%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 12.8825
+  P50:  12.5943
+  P90:  21.8747
+  P95:  22.6788
+  P99:  24.1352
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 14.9044
+  P50:  15.0144
+  P90:  23.4896
+  P95:  24.4452
+  P99:  25.4443
+
+Recommendation:
+  System cannot handle workload (2.7x overloaded)
+  For stable operation: Reduce arrival to 3.0 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/h100-80gb_4xpu_tp4.json
+✓ Completed successfully
+  Throughput: 708.1 tok/s, Completed: 320, P95 TTFT: 22.68s
+
+-----------------------------------------------------------------------
+[8/12] Testing: h100-80gb - TP=8
+  Cluster: 8 xPUs (TP=8)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 63.70GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    1008.3 tok/s
+  Utilization:          190% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 462
+
+Throughput (= System Capacity):
+  Requests/sec: 7.70
+  Tokens/sec: 1008.34
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.92GB / 640GB (12.5%)
+  P95:         79.17GB / 640GB (12.4%)
+  P50 (Med):   52.69GB / 640GB (8.2%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 4.9144
+  P50:  4.8987
+  P90:  8.2060
+  P95:  8.7311
+  P99:  9.6267
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 7.2944
+  P50:  7.4635
+  P90:  10.6368
+  P95:  11.3941
+  P99:  12.2739
+
+Recommendation:
+  System cannot handle workload (1.9x overloaded)
+  For stable operation: Reduce arrival to 4.2 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/h100-80gb_8xpu_tp8.json
+✓ Completed successfully
+  Throughput: 1008.3 tok/s, Completed: 462, P95 TTFT: 8.73s
+
+-----------------------------------------------------------------------
+[9/12] Testing: mi300x - TP=1
+  Cluster: 1 xPUs (TP=1)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 1 xPUs, arrival_rate=10.0 req/s
+Memory: 130.39GB model, 61.61GB available for KV cache
+
+Simulation completed at t=60.02s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    465.4 tok/s
+  Utilization:          413% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 214
+
+Throughput (= System Capacity):
+  Requests/sec: 3.57
+  Tokens/sec: 465.41
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        191.85GB / 192GB (99.9%)
+  P95:         190.87GB / 192GB (99.4%)
+  P50 (Med):   170.14GB / 192GB (88.6%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 18.7126
+  P50:  19.3250
+  P90:  32.5834
+  P95:  33.4529
+  P99:  33.9422
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 22.4879
+  P50:  22.7125
+  P90:  35.8667
+  P95:  37.2751
+  P99:  38.3097
+
+Recommendation:
+  System cannot handle workload (4.1x overloaded)
+  For stable operation: Reduce arrival to 1.9 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/mi300x_1xpu_tp1.json
+✓ Completed successfully
+  Throughput: 465.4 tok/s, Completed: 214, P95 TTFT: 33.45s
+
+-----------------------------------------------------------------------
+[10/12] Testing: mi300x - TP=2
+  Cluster: 2 xPUs (TP=2)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 2 xPUs, arrival_rate=10.0 req/s
+Memory: 65.19GB model, 126.81GB available for KV cache
+
+Simulation completed at t=60.94s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    889.1 tok/s
+  Utilization:          216% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 431
+
+Throughput (= System Capacity):
+  Requests/sec: 7.07
+  Tokens/sec: 889.12
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        192.00GB / 384GB (50.0%)
+  P95:         191.15GB / 384GB (49.8%)
+  P50 (Med):   129.01GB / 384GB (33.6%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 7.4275
+  P50:  7.4331
+  P90:  11.7655
+  P95:  12.5231
+  P99:  13.7677
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 11.1578
+  P50:  11.5152
+  P90:  16.0012
+  P95:  16.9134
+  P99:  18.0743
+
+Recommendation:
+  System cannot handle workload (2.2x overloaded)
+  For stable operation: Reduce arrival to 3.7 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/mi300x_2xpu_tp2.json
+✓ Completed successfully
+  Throughput: 889.1 tok/s, Completed: 431, P95 TTFT: 12.52s
+
+-----------------------------------------------------------------------
+[11/12] Testing: mi300x - TP=4
+  Cluster: 4 xPUs (TP=4)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 4 xPUs, arrival_rate=10.0 req/s
+Memory: 32.60GB model, 159.40GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    1128.6 tok/s
+  Utilization:          170% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 517
+
+Throughput (= System Capacity):
+  Requests/sec: 8.62
+  Tokens/sec: 1128.62
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        105.40GB / 768GB (13.7%)
+  P95:         99.70GB / 768GB (13.0%)
+  P50 (Med):   66.57GB / 768GB (8.7%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 2.8770
+  P50:  2.8390
+  P90:  4.5930
+  P95:  4.8918
+  P99:  5.2119
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 4.8326
+  P50:  4.8350
+  P90:  6.7377
+  P95:  7.0870
+  P99:  7.6885
+
+Recommendation:
+  System cannot handle workload (1.7x overloaded)
+  For stable operation: Reduce arrival to 4.7 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/mi300x_4xpu_tp4.json
+✓ Completed successfully
+  Throughput: 1128.6 tok/s, Completed: 517, P95 TTFT: 4.89s
+
+-----------------------------------------------------------------------
+[12/12] Testing: mi300x - TP=8
+  Cluster: 8 xPUs (TP=8)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 175.70GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Load Analysis:
+  Arrival Rate:         10.0 req/s
+  Avg Output Length:    192 tok/req
+  Required Throughput:  1920 tok/s
+  Actual Throughput:    1187.1 tok/s
+  Utilization:          162% ⚠️  OVERLOAD
+
+------------------------------------------------------------
+Metrics Reliability:
+  ✅ Throughput:    System capacity (reliable)
+  ✅ Completion:    Capacity/Load ratio (reliable)
+  ❌ TTFT/Latency:  Unreliable (early arrivals only)
+------------------------------------------------------------
+
+Requests:
+  Total: 581
+  Completed: 551
+
+Throughput (= System Capacity):
+  Requests/sec: 9.18
+  Tokens/sec: 1187.08
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        57.75GB / 1536GB (3.8%)
+  P95:         50.30GB / 1536GB (3.3%)
+  P50 (Med):   32.85GB / 1536GB (2.1%)
+
+First Token Latency (⚠️  Not representative - early arrivals only):
+  Mean: 1.2058
+  P50:  1.1568
+  P90:  1.9731
+  P95:  2.2372
+  P99:  2.5068
+
+End-to-End Latency (⚠️  Not representative):
+  Mean: 2.2669
+  P50:  2.2283
+  P90:  3.2466
+  P95:  3.5159
+  P99:  3.9713
+
+Recommendation:
+  System cannot handle workload (1.6x overloaded)
+  For stable operation: Reduce arrival to 4.9 req/s (80% util)
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_180638/mi300x_8xpu_tp8.json
+✓ Completed successfully
+  Throughput: 1187.1 tok/s, Completed: 551, P95 TTFT: 2.24s
+
+=======================================================================
+Benchmark Complete!
+=======================================================================
+End Time: 2025. 12. 08. (월) 18:06:45 PST
+
+============================================================================================================================================
+TP SCALING BENCHMARK REPORT
+============================================================================================================================================
+
+Configuration:
+--------------------------------------------------------------------------------------------------------------------------------------------
+  Model:           N/A
+  xPUs Tested:     N/A
+  Workload:        N/A req/s
+  Duration:        N/As
+
+Performance & Cost Analysis:
+============================================================================================================================================
+         xPU  GPUs  TP   Status     Out  Throughput  P95 TTFT     Cost  Efficiency        Cost
+                                (req/s)     (tok/s)     (sec)   ($/hr)   (tok/$/h)   ($/1Mtok)
+--------------------------------------------------------------------------------------------------------------------------------------------
+   A100-80GB     1   1   ❌ FAIL     N/A         N/A       N/A      N/A         N/A         N/A
+   A100-80GB     2   2     ✅ OK     0.9       125.8     49.63     7.34        17.1    58347.85
+   A100-80GB     4   4     ✅ OK     2.8       366.4     34.72    14.68        25.0    40064.66
+   A100-80GB     8   8     ✅ OK     4.3       548.7     27.98    29.36        18.7    53504.72
+   H100-80GB     1   1   ❌ FAIL     N/A         N/A       N/A      N/A         N/A         N/A
+   H100-80GB     2   2     ✅ OK     1.7       222.3     48.84    12.98        17.1    58383.15
+   H100-80GB     4   4     ✅ OK     5.3       708.1     22.68    25.96        27.3    36663.87
+   H100-80GB     8   8     ✅ OK     7.7      1008.3      8.73    51.92        19.4    51490.40
+      MI300X     1   1     ✅ OK     3.6       465.4     33.45     7.00        66.5    15040.66
+      MI300X     2   2     ✅ OK     7.1       889.1     12.52    14.00        63.5    15745.87
+      MI300X     4   4     ✅ OK     8.6      1128.6      4.89    28.00        40.3    24809.01
+      MI300X     8   8     ✅ OK     9.2      1187.1      2.24    56.00        21.2    47174.51
+--------------------------------------------------------------------------------------------------------------------------------------------
+
+🏆 Recommended Configurations:
+--------------------------------------------------------------------------------------------------------------------------------------------
+  💰 Best Value (tok/$/hour):
+     MI300X: 1 GPUs, TP=1
+     66.5 tok/$/hour | $15040.66/1M tokens | 465.4 tok/s
+
+  🚀 Best Performance (throughput):
+     MI300X: 8 GPUs, TP=8
+     1187.1 tok/s | $56.00/hour | P95 TTFT: 2.24s
+
+  ⚡ Best Latency (TTFT):
+     MI300X: 8 GPUs, TP=8
+     P95 TTFT: 2.24s | 1187.1 tok/s | $56.00/hour
+
+
+❌ Failed Tests:
+--------------------------------------------------------------------------------------------------------------------------------------------
+  A100-80GB: 1 GPUs, TP=1
+    → 1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.
+  H100-80GB: 1 GPUs, TP=1
+    → 1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.
+
+
+📈 TP Scaling Efficiency:
+--------------------------------------------------------------------------------------------------------------------------------------------
+  A100-80GB (baseline: 2 GPU, TP=2, 125.8 tok/s):
+    4 GPUs, TP=4: 2.91x speedup (145.6% efficiency, ideal: 2.0x)
+    8 GPUs, TP=8: 4.36x speedup (109.1% efficiency, ideal: 4.0x)
+
+  H100-80GB (baseline: 2 GPU, TP=2, 222.3 tok/s):
+    4 GPUs, TP=4: 3.18x speedup (159.2% efficiency, ideal: 2.0x)
+    8 GPUs, TP=8: 4.54x speedup (113.4% efficiency, ideal: 4.0x)
+
+  MI300X (baseline: 1 GPU, TP=1, 465.4 tok/s):
+    2 GPUs, TP=2: 1.91x speedup (95.5% efficiency, ideal: 2.0x)
+    4 GPUs, TP=4: 2.43x speedup (60.6% efficiency, ideal: 4.0x)
+    8 GPUs, TP=8: 2.55x speedup (31.9% efficiency, ideal: 8.0x)
+
+============================================================================================================================================
+Summary: 10 succeeded, 2 failed
+============================================================================================================================================
+
+Results saved to: results/cluster_benchmark_20251208_180638
+=======================================================================

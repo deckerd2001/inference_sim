@@ -14,8 +14,10 @@ A100_80GB = xPUSpec(
     vendor="NVIDIA",
     memory_size_gb=80.0,
     memory_bandwidth_gbs=2039.0,
+    intra_node_bandwidth_gbs=600.0,   # NVLink 3.0: 600 GB/s
+    inter_node_bandwidth_gbs=50.0,    # InfiniBand HDR: 200 Gb/s = 50 GB/s (bidirectional)
     l2_cache_size_mb=40.0,
-    price_per_hour=3.67,  # AWS p4d.24xlarge / 8 GPUs
+    price_per_hour=3.67,
     compute_units={
         "tensor_core": ComputeUnit(
             name="Tensor Core (Ampere)",
@@ -43,8 +45,10 @@ H100_80GB = xPUSpec(
     vendor="NVIDIA",
     memory_size_gb=80.0,
     memory_bandwidth_gbs=3350.0,
+    intra_node_bandwidth_gbs=900.0,   # NVLink 4.0: 900 GB/s
+    inter_node_bandwidth_gbs=50.0,    # InfiniBand HDR
     l2_cache_size_mb=50.0,
-    price_per_hour=6.49,  # AWS p5.48xlarge / 8 GPUs
+    price_per_hour=6.49,
     compute_units={
         "tensor_core": ComputeUnit(
             name="Tensor Core (Hopper)",
@@ -72,8 +76,10 @@ B200_192GB = xPUSpec(
     vendor="NVIDIA",
     memory_size_gb=192.0,
     memory_bandwidth_gbs=8000.0,
+    intra_node_bandwidth_gbs=1800.0,  # NVLink 5.0: 1.8 TB/s
+    inter_node_bandwidth_gbs=100.0,   # InfiniBand NDR: 400 Gb/s
     l2_cache_size_mb=60.0,
-    price_per_hour=10.0,  # Estimated
+    price_per_hour=10.0,
     compute_units={
         "tensor_core": ComputeUnit(
             name="Tensor Core (Blackwell)",
@@ -101,7 +107,9 @@ GTX_1080Ti = xPUSpec(
     vendor="NVIDIA",
     memory_size_gb=11.0,
     memory_bandwidth_gbs=484.0,
-    price_per_hour=0.5,  # Estimated (not available in cloud)
+    intra_node_bandwidth_gbs=0.0,     # No NVLink
+    inter_node_bandwidth_gbs=0.0,     # No high-speed interconnect
+    price_per_hour=0.5,
     compute_units={
         "cuda_core": ComputeUnit(
             name="CUDA Core (Pascal)",
@@ -124,7 +132,9 @@ MI300X = xPUSpec(
     vendor="AMD",
     memory_size_gb=192.0,
     memory_bandwidth_gbs=5300.0,
-    price_per_hour=7.0,  # Estimated (similar to H100)
+    intra_node_bandwidth_gbs=896.0,   # Infinity Fabric: 896 GB/s
+    inter_node_bandwidth_gbs=50.0,    # InfiniBand HDR
+    price_per_hour=7.0,
     compute_units={
         "matrix_core": ComputeUnit(
             name="Matrix Core (CDNA3)",
@@ -154,7 +164,9 @@ TPU_V4 = xPUSpec(
     vendor="Google",
     memory_size_gb=32.0,
     memory_bandwidth_gbs=1200.0,
-    price_per_hour=3.67,  # GCP TPU v4 pricing
+    intra_node_bandwidth_gbs=300.0,   # ICI (Inter-Chip Interconnect)
+    inter_node_bandwidth_gbs=50.0,    # DCN (Data Center Network)
+    price_per_hour=3.67,
     compute_units={
         "systolic_array": ComputeUnit(
             name="Systolic Array",

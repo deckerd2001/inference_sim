@@ -1,0 +1,10 @@
+{
+  "status": "failed",
+  "error": "Configuration validation or runtime error",
+  "error_details": "    raise ValueError(error_msg.strip())
+ValueError: Configuration validation failed:
+  1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.",
+  "xpu": "h100-80gb",
+  "n_xpus": 1,
+  "tp": 1
+}

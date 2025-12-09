@@ -86,6 +86,16 @@ class xPUSpec:
     l2_cache_size_mb: Optional[float] = None
     
     
+    
+    # Interconnect bandwidth (for inter-GPU communication)
+    intra_node_bandwidth_gbs: float = 600.0  # NVLink/Infinity Fabric (intra-node)
+    inter_node_bandwidth_gbs: float = 50.0   # InfiniBand/RoCE (inter-node)
+
+    
+    # Interconnect bandwidth (for inter-GPU communication)
+    intra_node_bandwidth_gbs: float = 600.0  # NVLink/Infinity Fabric (intra-node)
+    inter_node_bandwidth_gbs: float = 50.0   # InfiniBand/RoCE (inter-node)
+
     # Pricing (cloud on-demand pricing, $/hour)
     price_per_hour: float = 0.0  # $0 = pricing not available
 

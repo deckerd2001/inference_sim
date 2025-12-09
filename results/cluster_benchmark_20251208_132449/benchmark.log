@@ -1,0 +1,653 @@
+=======================================================================
+LLM Inference Simulator - TP Scaling Benchmark
+=======================================================================
+Start Time: 2025. 12. 08. (월) 13:24:49 PST
+Random Seed: 28774
+
+⚠️  Note: Only TP (Tensor Parallelism) is implemented
+
+Configuration:
+  Model:           llama2-70b
+  xPUs:            a100-80gb h100-80gb mi300x
+  Arrival Rate:    10.0 req/s
+  Duration:        60.0s
+
+Testing 3 xPUs × 4 TP configs = 12 total tests
+=======================================================================
+
+-----------------------------------------------------------------------
+[1/12] Testing: a100-80gb - TP=1
+  Cluster: 1 xPUs (TP=1)
+-----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/cli.py", line 219, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/cli.py", line 203, in main
+    config = create_config_from_args(args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/cli.py", line 83, in create_config_from_args
+    return SimulatorConfig(
+           ^^^^^^^^^^^^^^^^
+  File "<string>", line 12, in __init__
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/config.py", line 113, in __post_init__
+    self.validate()
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/config.py", line 203, in validate
+    raise ValueError(error_msg.strip())
+ValueError: Configuration validation failed:
+  1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.
+✗ Failed
+  Error saved to: results/cluster_benchmark_20251208_132449/a100-80gb_1xpu_tp1_error.log
+
+-----------------------------------------------------------------------
+[2/12] Testing: a100-80gb - TP=2
+  Cluster: 2 xPUs (TP=2)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 2 xPUs, arrival_rate=10.0 req/s
+Memory: 65.19GB model, 14.81GB available for KV cache
+
+Simulation completed at t=60.01s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 57
+
+Throughput:
+  Requests/sec: 0.95
+  Tokens/sec: 130.22
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        80.00GB / 80GB (100.0%)
+  P95:         79.96GB / 80GB ( 99.9%)
+  P50 (Med):   76.69GB / 80GB ( 95.9%)
+
+First Token Latency (seconds):
+  Mean: 26.9665
+  P50:  26.6491
+  P90:  49.4752
+  P95:  49.5729
+  P99:  49.7698
+
+End-to-End Latency (seconds):
+  Mean: 29.9559
+  P50:  28.9729
+  P90:  48.3327
+  P95:  52.8125
+  P99:  53.8705
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/a100-80gb_2xpu_tp2.json
+✓ Completed successfully
+  Throughput: 130.2 tok/s, Completed: 57, P95 TTFT: 49.57s
+
+-----------------------------------------------------------------------
+[3/12] Testing: a100-80gb - TP=4
+  Cluster: 4 xPUs (TP=4)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 4 xPUs, arrival_rate=10.0 req/s
+Memory: 32.60GB model, 47.40GB available for KV cache
+
+Simulation completed at t=60.74s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 170
+
+Throughput:
+  Requests/sec: 2.80
+  Tokens/sec: 365.67
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.56GB / 80GB ( 99.5%)
+  P95:         79.19GB / 80GB ( 99.0%)
+  P50 (Med):   67.71GB / 80GB ( 84.6%)
+
+First Token Latency (seconds):
+  Mean: 19.8084
+  P50:  21.4324
+  P90:  35.2930
+  P95:  36.2469
+  P99:  37.0794
+
+End-to-End Latency (seconds):
+  Mean: 24.3951
+  P50:  24.3598
+  P90:  39.8950
+  P95:  41.2049
+  P99:  42.3695
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/a100-80gb_4xpu_tp4.json
+✓ Completed successfully
+  Throughput: 365.7 tok/s, Completed: 170, P95 TTFT: 36.25s
+
+-----------------------------------------------------------------------
+[4/12] Testing: a100-80gb - TP=8
+  Cluster: 8 xPUs (TP=8)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 63.70GB available for KV cache
+
+Simulation completed at t=60.02s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 252
+
+Throughput:
+  Requests/sec: 4.20
+  Tokens/sec: 571.87
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.62GB / 80GB ( 99.5%)
+  P95:         79.31GB / 80GB ( 99.1%)
+  P50 (Med):   55.28GB / 80GB ( 69.1%)
+
+First Token Latency (seconds):
+  Mean: 17.0835
+  P50:  17.1735
+  P90:  29.4898
+  P95:  31.3135
+  P99:  32.7093
+
+End-to-End Latency (seconds):
+  Mean: 19.3478
+  P50:  20.2039
+  P90:  30.8425
+  P95:  31.8755
+  P99:  33.1162
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/a100-80gb_8xpu_tp8.json
+✓ Completed successfully
+  Throughput: 571.9 tok/s, Completed: 252, P95 TTFT: 31.31s
+
+-----------------------------------------------------------------------
+[5/12] Testing: h100-80gb - TP=1
+  Cluster: 1 xPUs (TP=1)
+-----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/cli.py", line 219, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/cli.py", line 203, in main
+    config = create_config_from_args(args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/cli.py", line 83, in create_config_from_args
+    return SimulatorConfig(
+           ^^^^^^^^^^^^^^^^
+  File "<string>", line 12, in __init__
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/config.py", line 113, in __post_init__
+    self.validate()
+  File "/home/deckerd/my_projects/inference_sim/llm_inference_simulator/config.py", line 203, in validate
+    raise ValueError(error_msg.strip())
+ValueError: Configuration validation failed:
+  1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.
+✗ Failed
+  Error saved to: results/cluster_benchmark_20251208_132449/h100-80gb_1xpu_tp1_error.log
+
+-----------------------------------------------------------------------
+[6/12] Testing: h100-80gb - TP=2
+  Cluster: 2 xPUs (TP=2)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 2 xPUs, arrival_rate=10.0 req/s
+Memory: 65.19GB model, 14.81GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 103
+
+Throughput:
+  Requests/sec: 1.72
+  Tokens/sec: 220.84
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        80.00GB / 80GB (100.0%)
+  P95:         79.80GB / 80GB ( 99.8%)
+  P50 (Med):   75.75GB / 80GB ( 94.7%)
+
+First Token Latency (seconds):
+  Mean: 25.7012
+  P50:  25.9946
+  P90:  45.2570
+  P95:  49.6361
+  P99:  49.9820
+
+End-to-End Latency (seconds):
+  Mean: 26.4179
+  P50:  25.8440
+  P90:  44.4989
+  P95:  47.8559
+  P99:  48.5927
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/h100-80gb_2xpu_tp2.json
+✓ Completed successfully
+  Throughput: 220.8 tok/s, Completed: 103, P95 TTFT: 49.64s
+
+-----------------------------------------------------------------------
+[7/12] Testing: h100-80gb - TP=4
+  Cluster: 4 xPUs (TP=4)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 4 xPUs, arrival_rate=10.0 req/s
+Memory: 32.60GB model, 47.40GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 319
+
+Throughput:
+  Requests/sec: 5.32
+  Tokens/sec: 712.18
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.92GB / 80GB ( 99.9%)
+  P95:         79.62GB / 80GB ( 99.5%)
+  P50 (Med):   60.61GB / 80GB ( 75.8%)
+
+First Token Latency (seconds):
+  Mean: 13.5946
+  P50:  13.8822
+  P90:  23.1719
+  P95:  24.7806
+  P99:  26.0387
+
+End-to-End Latency (seconds):
+  Mean: 15.6699
+  P50:  15.7508
+  P90:  25.2182
+  P95:  26.0642
+  P99:  27.2774
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/h100-80gb_4xpu_tp4.json
+✓ Completed successfully
+  Throughput: 712.2 tok/s, Completed: 319, P95 TTFT: 24.78s
+
+-----------------------------------------------------------------------
+[8/12] Testing: h100-80gb - TP=8
+  Cluster: 8 xPUs (TP=8)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 63.70GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 464
+
+Throughput:
+  Requests/sec: 7.73
+  Tokens/sec: 1027.18
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.96GB / 80GB ( 99.9%)
+  P95:         79.35GB / 80GB ( 99.2%)
+  P50 (Med):   50.82GB / 80GB ( 63.5%)
+
+First Token Latency (seconds):
+  Mean: 5.7309
+  P50:  5.8650
+  P90:  9.1829
+  P95:  9.9360
+  P99:  11.4406
+
+End-to-End Latency (seconds):
+  Mean: 8.1274
+  P50:  8.3775
+  P90:  11.7769
+  P95:  12.5263
+  P99:  13.4457
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/h100-80gb_8xpu_tp8.json
+✓ Completed successfully
+  Throughput: 1027.2 tok/s, Completed: 464, P95 TTFT: 9.94s
+
+-----------------------------------------------------------------------
+[9/12] Testing: mi300x - TP=1
+  Cluster: 1 xPUs (TP=1)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 1 xPUs, arrival_rate=10.0 req/s
+Memory: 130.39GB model, 61.61GB available for KV cache
+
+Simulation completed at t=60.01s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 216
+
+Throughput:
+  Requests/sec: 3.60
+  Tokens/sec: 469.13
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:       192.00GB / 192GB (100.0%)
+  P95:        191.90GB / 192GB ( 99.9%)
+  P50 (Med):  173.60GB / 192GB ( 90.4%)
+
+First Token Latency (seconds):
+  Mean: 19.2181
+  P50:  20.0610
+  P90:  32.8725
+  P95:  34.4270
+  P99:  35.8573
+
+End-to-End Latency (seconds):
+  Mean: 23.1756
+  P50:  23.3972
+  P90:  36.6943
+  P95:  38.0573
+  P99:  40.8668
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/mi300x_1xpu_tp1.json
+✓ Completed successfully
+  Throughput: 469.1 tok/s, Completed: 216, P95 TTFT: 34.43s
+
+-----------------------------------------------------------------------
+[10/12] Testing: mi300x - TP=2
+  Cluster: 2 xPUs (TP=2)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 2 xPUs, arrival_rate=10.0 req/s
+Memory: 65.19GB model, 126.81GB available for KV cache
+
+Simulation completed at t=60.01s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 446
+
+Throughput:
+  Requests/sec: 7.43
+  Tokens/sec: 969.80
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:       191.13GB / 192GB ( 99.5%)
+  P95:        190.57GB / 192GB ( 99.3%)
+  P50 (Med):  130.27GB / 192GB ( 67.8%)
+
+First Token Latency (seconds):
+  Mean: 8.1202
+  P50:  8.2993
+  P90:  13.2966
+  P95:  14.2170
+  P99:  15.1701
+
+End-to-End Latency (seconds):
+  Mean: 11.9840
+  P50:  12.2921
+  P90:  17.1637
+  P95:  18.7154
+  P99:  20.0863
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/mi300x_2xpu_tp2.json
+✓ Completed successfully
+  Throughput: 969.8 tok/s, Completed: 446, P95 TTFT: 14.22s
+
+-----------------------------------------------------------------------
+[11/12] Testing: mi300x - TP=4
+  Cluster: 4 xPUs (TP=4)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 4 xPUs, arrival_rate=10.0 req/s
+Memory: 32.60GB model, 159.40GB available for KV cache
+
+Simulation completed at t=60.13s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 537
+
+Throughput:
+  Requests/sec: 8.93
+  Tokens/sec: 1144.29
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:       105.27GB / 192GB ( 54.8%)
+  P95:         99.37GB / 192GB ( 51.8%)
+  P50 (Med):   64.84GB / 192GB ( 33.8%)
+
+First Token Latency (seconds):
+  Mean: 2.8166
+  P50:  2.8257
+  P90:  4.5125
+  P95:  4.7974
+  P99:  5.2712
+
+End-to-End Latency (seconds):
+  Mean: 4.9169
+  P50:  4.9597
+  P90:  6.9021
+  P95:  7.1991
+  P99:  7.9011
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/mi300x_4xpu_tp4.json
+✓ Completed successfully
+  Throughput: 1144.3 tok/s, Completed: 537, P95 TTFT: 4.80s
+
+-----------------------------------------------------------------------
+[12/12] Testing: mi300x - TP=8
+  Cluster: 8 xPUs (TP=8)
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 175.70GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 579
+  Completed: 564
+
+Throughput:
+  Requests/sec: 9.40
+  Tokens/sec: 1211.61
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        56.82GB / 192GB ( 29.6%)
+  P95:         49.11GB / 192GB ( 25.6%)
+  P50 (Med):   33.06GB / 192GB ( 17.2%)
+
+First Token Latency (seconds):
+  Mean: 1.1392
+  P50:  1.1209
+  P90:  1.8981
+  P95:  2.0712
+  P99:  2.2445
+
+End-to-End Latency (seconds):
+  Mean: 2.2022
+  P50:  2.2170
+  P90:  3.0817
+  P95:  3.3599
+  P99:  3.7007
+
+============================================================
+
+✓ Results saved to: results/cluster_benchmark_20251208_132449/mi300x_8xpu_tp8.json
+✓ Completed successfully
+  Throughput: 1211.6 tok/s, Completed: 564, P95 TTFT: 2.07s
+
+=======================================================================
+Benchmark Complete!
+=======================================================================
+End Time: 2025. 12. 08. (월) 13:24:56 PST
+
+==============================================================================================================
+TP SCALING BENCHMARK REPORT
+==============================================================================================================
+
+Configuration:
+--------------------------------------------------------------------------------------------------------------
+  Model:           llama2-70b
+  xPUs Tested:     a100-80gb h100-80gb mi300x
+  Workload:        10.0 req/s
+  Duration:        60.0s
+
+Performance by xPU and TP Configuration:
+==============================================================================================================
+xPU             #xPUs    TP     Status       Throughput         Completed    P95 TTFT    
+--------------------------------------------------------------------------------------------------------------
+a100-80gb       1        1      ❌ FAILED     N/A                N/A          N/A         
+a100-80gb       2        2      ✅ SUCCESS            130.2 tok/s     57/579      49.57s
+a100-80gb       4        4      ✅ SUCCESS            365.7 tok/s    170/579      36.25s
+a100-80gb       8        8      ✅ SUCCESS            571.9 tok/s    252/579      31.31s
+h100-80gb       1        1      ❌ FAILED     N/A                N/A          N/A         
+h100-80gb       2        2      ✅ SUCCESS            220.8 tok/s    103/579      49.64s
+h100-80gb       4        4      ✅ SUCCESS            712.2 tok/s    319/579      24.78s
+h100-80gb       8        8      ✅ SUCCESS           1027.2 tok/s    464/579       9.94s
+mi300x          1        1      ✅ SUCCESS            469.1 tok/s    216/579      34.43s
+mi300x          2        2      ✅ SUCCESS            969.8 tok/s    446/579      14.22s
+mi300x          4        4      ✅ SUCCESS           1144.3 tok/s    537/579       4.80s
+mi300x          8        8      ✅ SUCCESS           1211.6 tok/s    564/579       2.07s
+--------------------------------------------------------------------------------------------------------------
+
+❌ Failed Tests:
+--------------------------------------------------------------------------------------------------------------
+  A100-80GB       TP=1 (1 xPUs):     raise ValueError(error_msg.strip())
+                  Full error log: results/cluster_benchmark_20251208_132449/a100-80gb_1xpu_tp1_error.log
+  H100-80GB       TP=1 (1 xPUs):     raise ValueError(error_msg.strip())
+                  Full error log: results/cluster_benchmark_20251208_132449/h100-80gb_1xpu_tp1_error.log
+
+
+✅ Successful Tests Summary:
+--------------------------------------------------------------------------------------------------------------
+  🏆 Best Configuration:
+     MI300X with TP=8 (8 xPUs)
+     Throughput: 1211.6 tok/s
+     Completed: 564/579 (97.4%)
+
+  TP=8 Comparison:
+    MI300X              1211.6 tok/s  (2.12x)
+    H100-80GB           1027.2 tok/s  (1.80x)
+    A100-80GB            571.9 tok/s  (1.00x)
+
+  TP Scaling Efficiency:
+    A100-80GB:
+      TP= 4 (4 xPUs): 2.81x speedup, 140.4% efficiency (ideal: 2.0x)
+      TP= 8 (8 xPUs): 4.39x speedup, 109.8% efficiency (ideal: 4.0x)
+
+    H100-80GB:
+      TP= 4 (4 xPUs): 3.22x speedup, 161.2% efficiency (ideal: 2.0x)
+      TP= 8 (8 xPUs): 4.65x speedup, 116.3% efficiency (ideal: 4.0x)
+
+    MI300X:
+      TP= 2 (2 xPUs): 2.07x speedup, 103.4% efficiency (ideal: 2.0x)
+      TP= 4 (4 xPUs): 2.44x speedup, 61.0% efficiency (ideal: 4.0x)
+      TP= 8 (8 xPUs): 2.58x speedup, 32.3% efficiency (ideal: 8.0x)
+
+==============================================================================================================
+Total: 10 succeeded, 2 failed
+==============================================================================================================
+
+Results saved to: results/cluster_benchmark_20251208_132449
+=======================================================================

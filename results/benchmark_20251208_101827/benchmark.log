@@ -1,0 +1,339 @@
+=======================================================================
+LLM Inference Simulator - Benchmark
+=======================================================================
+Start Time: 2025. 12. 08. (월) 10:18:27 PST
+
+Configuration:
+  xPUs: a100-80gb h100-80gb mi300x
+  Models: llama-7b llama2-70b
+  Workload: 10.0 req/s
+  Duration: 60.0s
+  Results: results/benchmark_20251208_101827
+=======================================================================
+
+-----------------------------------------------------------------------
+[1/6] Testing: llama-7b on a100-80gb
+  Parallelism: TP=1, xPUs=1
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-7B, 1 xPUs, arrival_rate=10.0 req/s
+Memory: 13.04GB model, 66.96GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 581
+  Completed: 559
+
+Throughput:
+  Requests/sec: 9.32
+  Tokens/sec: 1212.71
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        25.47GB / 80GB ( 31.8%)
+  P95:         22.48GB / 80GB ( 28.1%)
+  P50 (Med):   17.10GB / 80GB ( 21.4%)
+
+First Token Latency (seconds):
+  Mean: 1.6118
+  P50:  1.5854
+  P90:  2.6142
+  P95:  2.8723
+  P99:  3.1915
+
+End-to-End Latency (seconds):
+  Mean: 2.6314
+  P50:  2.6169
+  P90:  3.7818
+  P95:  4.1495
+  P99:  4.5334
+
+============================================================
+
+✓ Results saved to: results/benchmark_20251208_101827/llama-7b_a100-80gb.json
+✓ Completed successfully
+  Throughput: 1212.7 tok/s
+
+-----------------------------------------------------------------------
+[2/6] Testing: llama2-70b on a100-80gb
+  Parallelism: TP=8, xPUs=8
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 63.70GB available for KV cache
+
+Simulation completed at t=60.01s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 581
+  Completed: 257
+
+Throughput:
+  Requests/sec: 4.28
+  Tokens/sec: 568.74
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.41GB / 80GB ( 99.3%)
+  P95:         78.92GB / 80GB ( 98.6%)
+  P50 (Med):   55.74GB / 80GB ( 69.7%)
+
+First Token Latency (seconds):
+  Mean: 16.6124
+  P50:  17.5385
+  P90:  28.0876
+  P95:  29.4219
+  P99:  31.0571
+
+End-to-End Latency (seconds):
+  Mean: 19.0674
+  P50:  20.1359
+  P90:  29.9167
+  P95:  30.8609
+  P99:  32.4627
+
+============================================================
+
+✓ Results saved to: results/benchmark_20251208_101827/llama2-70b_a100-80gb.json
+✓ Completed successfully
+  Throughput: 568.7 tok/s
+
+-----------------------------------------------------------------------
+[3/6] Testing: llama-7b on h100-80gb
+  Parallelism: TP=1, xPUs=1
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-7B, 1 xPUs, arrival_rate=10.0 req/s
+Memory: 13.04GB model, 66.96GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 581
+  Completed: 573
+
+Throughput:
+  Requests/sec: 9.55
+  Tokens/sec: 1230.28
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        19.04GB / 80GB ( 23.8%)
+  P95:         17.02GB / 80GB ( 21.3%)
+  P50 (Med):   14.61GB / 80GB ( 18.3%)
+
+First Token Latency (seconds):
+  Mean: 0.4647
+  P50:  0.4378
+  P90:  0.7904
+  P95:  0.9333
+  P99:  1.0326
+
+End-to-End Latency (seconds):
+  Mean: 0.9499
+  P50:  0.9467
+  P90:  1.3320
+  P95:  1.4524
+  P99:  1.6957
+
+============================================================
+
+✓ Results saved to: results/benchmark_20251208_101827/llama-7b_h100-80gb.json
+✓ Completed successfully
+  Throughput: 1230.3 tok/s
+
+-----------------------------------------------------------------------
+[4/6] Testing: llama2-70b on h100-80gb
+  Parallelism: TP=8, xPUs=8
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 63.70GB available for KV cache
+
+Simulation completed at t=60.01s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 581
+  Completed: 465
+
+Throughput:
+  Requests/sec: 7.75
+  Tokens/sec: 1030.01
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        79.93GB / 80GB ( 99.9%)
+  P95:         79.36GB / 80GB ( 99.2%)
+  P50 (Med):   51.32GB / 80GB ( 64.2%)
+
+First Token Latency (seconds):
+  Mean: 4.6302
+  P50:  4.4620
+  P90:  7.4675
+  P95:  8.7195
+  P99:  9.7357
+
+End-to-End Latency (seconds):
+  Mean: 7.0260
+  P50:  7.1146
+  P90:  9.8955
+  P95:  10.8417
+  P99:  12.1893
+
+============================================================
+
+✓ Results saved to: results/benchmark_20251208_101827/llama2-70b_h100-80gb.json
+✓ Completed successfully
+  Throughput: 1030.0 tok/s
+
+-----------------------------------------------------------------------
+[5/6] Testing: llama-7b on mi300x
+  Parallelism: TP=1, xPUs=1
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-7B, 1 xPUs, arrival_rate=10.0 req/s
+Memory: 13.04GB model, 178.96GB available for KV cache
+
+Simulation completed at t=60.00s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 581
+  Completed: 577
+
+Throughput:
+  Requests/sec: 9.62
+  Tokens/sec: 1235.28
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        17.79GB / 192GB (  9.3%)
+  P95:         15.38GB / 192GB (  8.0%)
+  P50 (Med):   13.85GB / 192GB (  7.2%)
+
+First Token Latency (seconds):
+  Mean: 0.2354
+  P50:  0.2154
+  P90:  0.4310
+  P95:  0.4712
+  P99:  0.5474
+
+End-to-End Latency (seconds):
+  Mean: 0.5178
+  P50:  0.5159
+  P90:  0.7609
+  P95:  0.8204
+  P99:  0.9243
+
+============================================================
+
+✓ Results saved to: results/benchmark_20251208_101827/llama-7b_mi300x.json
+✓ Completed successfully
+  Throughput: 1235.3 tok/s
+
+-----------------------------------------------------------------------
+[6/6] Testing: llama2-70b on mi300x
+  Parallelism: TP=8, xPUs=8
+-----------------------------------------------------------------------
+
+Starting simulation...
+Starting simulation...
+Configuration: LLaMA-2-70B, 8 xPUs, arrival_rate=10.0 req/s
+Memory: 16.30GB model, 175.70GB available for KV cache
+
+Simulation completed at t=60.01s
+
+============================================================
+SIMULATION SUMMARY
+============================================================
+
+Requests:
+  Total: 581
+  Completed: 558
+
+Throughput:
+  Requests/sec: 9.30
+  Tokens/sec: 1212.60
+
+xPU Utilization: 100.0%
+
+Memory Usage:
+  Peak:        71.25GB / 192GB ( 37.1%)
+  P95:         53.85GB / 192GB ( 28.0%)
+  P50 (Med):   32.05GB / 192GB ( 16.7%)
+
+First Token Latency (seconds):
+  Mean: 1.1684
+  P50:  1.1445
+  P90:  2.0002
+  P95:  2.1964
+  P99:  2.4511
+
+End-to-End Latency (seconds):
+  Mean: 2.2598
+  P50:  2.2119
+  P90:  3.3208
+  P95:  3.6382
+  P99:  4.1469
+
+============================================================
+
+✓ Results saved to: results/benchmark_20251208_101827/llama2-70b_mi300x.json
+✓ Completed successfully
+  Throughput: 1212.6 tok/s
+
+=======================================================================
+Benchmark Complete!
+=======================================================================
+End Time: 2025. 12. 08. (월) 10:18:33 PST
+
+Summary Report:
+==========================================================================================
+Model           xPU             Throughput      Completed    P95 TTFT     Memory    
+------------------------------------------------------------------------------------------
+llama-7b        a100-80gb           1212.7 tok/s    559/581       2.87s    25.5GB
+llama-7b        h100-80gb           1230.3 tok/s    573/581       0.93s    19.0GB
+llama-7b        mi300x              1235.3 tok/s    577/581       0.47s    17.8GB
+llama2-70b      a100-80gb            568.7 tok/s    257/581      29.42s    79.4GB
+llama2-70b      h100-80gb           1030.0 tok/s    465/581       8.72s    79.9GB
+llama2-70b      mi300x              1212.6 tok/s    558/581       2.20s    71.3GB
+------------------------------------------------------------------------------------------
+
+Results saved to: results/benchmark_20251208_101827
+Log file: results/benchmark_20251208_101827/benchmark.log
+=======================================================================

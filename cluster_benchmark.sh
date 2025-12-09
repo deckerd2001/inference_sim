@@ -55,18 +55,18 @@ current_test=0
 for xpu in "${XPUS[@]}"; do
     for config in "${TP_CONFIGS[@]}"; do
         current_test=$((current_test + 1))
-        
+
         IFS=':' read -r n_xpus tp description <<< "$config"
-        
+
         result_file="$RESULTS_DIR/${xpu}_${n_xpus}xpu_tp${tp}.json"
         error_log_file="$RESULTS_DIR/${xpu}_${n_xpus}xpu_tp${tp}_error.log"
-        
+
         echo "-----------------------------------------------------------------------" | tee -a $LOG_FILE
         echo "[$current_test/$total_tests] Testing: $xpu - $description" | tee -a $LOG_FILE
         echo "  Cluster: ${n_xpus} xPUs (TP=$tp)" | tee -a $LOG_FILE
         echo "-----------------------------------------------------------------------" | tee -a $LOG_FILE
-        
-        output=$(python3 -m llm_inference_simulator.cli \
+
+        output=$(python3 -m llm_inference_simulator \
             --model $MODEL \
             --xpu $xpu \
             --n-xpus-per-node $n_xpus \
@@ -80,13 +80,13 @@ for xpu in "${XPUS[@]}"; do
             --seed $RANDOM_SEED \
             --output $result_file \
             2>&1)
-        
+
         exit_code=$?
         echo "$output" | tee -a $LOG_FILE
-        
+
         if [ $exit_code -eq 0 ] && [ -f $result_file ]; then
             echo "✓ Completed successfully" | tee -a $LOG_FILE
-            
+
             metrics=$(python3 << PYTHON
 import json
 try:
@@ -103,7 +103,7 @@ PYTHON
         else
             echo "✗ Failed" | tee -a $LOG_FILE
             echo "$output" > $error_log_file
-            
+
             error_summary=$(python3 << ERRORPARSE
 import re
 output = """$output"""
@@ -132,7 +132,7 @@ if len(error_msg) > 200:
 print(error_msg)
 ERRORPARSE
 )
-            
+
             python3 << ERRORJSON
 import json
 error_data = {
@@ -146,10 +146,10 @@ error_data = {
 with open('$result_file', 'w') as f:
     json.dump(error_data, f, indent=2)
 ERRORJSON
-            
+
             echo "  Error: $error_summary" | tee -a $LOG_FILE
         fi
-        
+
         echo "" | tee -a $LOG_FILE
     done
 done
@@ -178,13 +178,13 @@ if not results_dirs:
 else:
     results_dir = results_dirs[-1] if '*' in RESULTS_DIR else RESULTS_DIR
 
-print("="*125)
+print("="*140)
 print("TP SCALING BENCHMARK REPORT")
-print("="*125)
+print("="*140)
 print()
 
 print("Configuration:")
-print("-"*125)
+print("-"*140)
 print(f"  Model:           {os.environ.get('MODEL', 'N/A')}")
 print(f"  xPUs Tested:     {os.environ.get('XPUS', 'N/A')}")
 print(f"  Workload:        {os.environ.get('WORKLOAD_ARRIVAL_RATE', 'N/A')} req/s")
@@ -192,14 +192,14 @@ print(f"  Duration:        {os.environ.get('SIMULATION_DURATION', 'N/A')}s")
 print()
 
 # =============================================================================
-# Unified Performance & Cost Table - Perfect Alignment
+# Unified Performance & Cost Table with Out(req/s)
 # =============================================================================
 print("Performance & Cost Analysis:")
-print("="*125)
-# Header with units
-print(f"{'xPU':>12} {'GPUs':>5} {'TP':>3} {'Status':>8} {'Throughput':>11} {'P95 TTFT':>9} {'Cost':>8} {'Efficiency':>11} {'Cost':>11}")
-print(f"{'':>12} {'':>5} {'':>3} {'':>8} {'(tok/s)':>11} {'(sec)':>9} {'($/hr)':>8} {'(tok/$/h)':>11} {'($/1Mtok)':>11}")
-print("-"*125)
+print("="*140)
+# Header with Out(req/s) column
+print(f"{'xPU':>12} {'GPUs':>5} {'TP':>3} {'Status':>8} {'Out':>7} {'Throughput':>11} {'P95 TTFT':>9} {'Cost':>8} {'Efficiency':>11} {'Cost':>11}")
+print(f"{'':>12} {'':>5} {'':>3} {'':>8} {'(req/s)':>7} {'(tok/s)':>11} {'(sec)':>9} {'($/hr)':>8} {'(tok/$/h)':>11} {'($/1Mtok)':>11}")
+print("-"*140)
 
 results = []
 failed_results = []
@@ -225,12 +225,17 @@ for result_file in sorted(glob.glob(f"{results_dir}/*xpu_tp*.json")):
                 'tp': tp,
                 'error': data.get('error_summary', 'Unknown error'),
             })
-            print(f"{xpu_name.upper():>12} {n_xpus:>5} {tp:>3} {'❌ FAIL':>8} {'N/A':>11} {'N/A':>9} {'N/A':>8} {'N/A':>11} {'N/A':>11}")
+            # All N/A with proper spacing
+            print(f"{xpu_name.upper():>12} {n_xpus:>5} {tp:>3} {'❌ FAIL':>8} {'N/A':>7} {'N/A':>11} {'N/A':>9} {'N/A':>8} {'N/A':>11} {'N/A':>11}")
         else:
             throughput = data.get('throughput', {}).get('tokens_per_sec', 0)
             completed = data.get('completed_requests', 0)
             total = data.get('total_requests', 0)
             ttft_p95 = data.get('first_token_latency', {}).get('p95', 0)
+            sim_time = data.get('simulation_time', 60)
+            
+            # Calculate output rate (req/s)
+            output_rate = completed / sim_time if sim_time > 0 else 0
             
             # Get cost info
             try:
@@ -247,6 +252,7 @@ for result_file in sorted(glob.glob(f"{results_dir}/*xpu_tp*.json")):
                 'xpu': xpu_name,
                 'n_xpus': n_xpus,
                 'tp': tp,
+                'output_rate': output_rate,
                 'throughput': throughput,
                 'completed': completed,
                 'total': total,
@@ -256,62 +262,53 @@ for result_file in sorted(glob.glob(f"{results_dir}/*xpu_tp*.json")):
                 'cost_per_1m': cost_per_1m
             })
             
-            # Print with ONLY numbers (no units)
             print(f"{xpu_name.upper():>12} {n_xpus:>5} {tp:>3} {'✅ OK':>8} "
-                  f"{throughput:>11.1f} {ttft_p95:>9.2f} {total_cost:>8.2f} {efficiency:>11.1f} {cost_per_1m:>11.2f}")
+                  f"{output_rate:>7.1f} {throughput:>11.1f} {ttft_p95:>9.2f} "
+                  f"{total_cost:>8.2f} {efficiency:>11.1f} {cost_per_1m:>11.2f}")
     except Exception as e:
         print(f"Error reading {result_file}: {e}")
 
-print("-"*125)
+print("-"*140)
 
-# =============================================================================
-# Best Configurations
-# =============================================================================
+# Rest of the summary sections...
+# (keeping existing recommendations, failed tests, TP scaling sections)
+
 if results:
     print()
     print("🏆 Recommended Configurations:")
-    print("-"*125)
+    print("-"*140)
     
-    # Sort by efficiency for best value
     best_value = max(results, key=lambda x: x['efficiency'])
     print(f"  💰 Best Value (tok/$/hour):")
     print(f"     {best_value['xpu'].upper()}: {best_value['n_xpus']} GPUs, TP={best_value['tp']}")
     print(f"     {best_value['efficiency']:.1f} tok/$/hour | ${best_value['cost_per_1m']:.2f}/1M tokens | {best_value['throughput']:.1f} tok/s")
     print()
     
-    # Best performance
     best_perf = max(results, key=lambda x: x['throughput'])
     print(f"  🚀 Best Performance (throughput):")
     print(f"     {best_perf['xpu'].upper()}: {best_perf['n_xpus']} GPUs, TP={best_perf['tp']}")
     print(f"     {best_perf['throughput']:.1f} tok/s | ${best_perf['total_cost']:.2f}/hour | P95 TTFT: {best_perf['ttft_p95']:.2f}s")
     print()
     
-    # Best latency
     best_latency = min(results, key=lambda x: x['ttft_p95'])
     print(f"  ⚡ Best Latency (TTFT):")
     print(f"     {best_latency['xpu'].upper()}: {best_latency['n_xpus']} GPUs, TP={best_latency['tp']}")
     print(f"     P95 TTFT: {best_latency['ttft_p95']:.2f}s | {best_latency['throughput']:.1f} tok/s | ${best_latency['total_cost']:.2f}/hour")
     print()
 
-# =============================================================================
-# Failed Tests
-# =============================================================================
 if failed_results:
     print()
     print("❌ Failed Tests:")
-    print("-"*125)
+    print("-"*140)
     for f in failed_results:
         print(f"  {f['xpu'].upper()}: {f['n_xpus']} GPUs, TP={f['tp']}")
         print(f"    → {f['error']}")
     print()
 
-# =============================================================================
-# TP Scaling Analysis
-# =============================================================================
 if results:
     print()
     print("📈 TP Scaling Efficiency:")
-    print("-"*125)
+    print("-"*140)
     
     xpu_names = sorted(set(r['xpu'] for r in results))
     for xpu_name in xpu_names:
@@ -326,9 +323,9 @@ if results:
                 print(f"    {r['n_xpus']} GPUs, TP={r['tp']}: {speedup:.2f}x speedup ({efficiency_pct:.1f}% efficiency, ideal: {ideal:.1f}x)")
             print()
 
-print("="*125)
+print("="*140)
 print(f"Summary: {len(results)} succeeded, {len(failed_results)} failed")
-print("="*125)
+print("="*140)
 PYTHON
 
 echo "" | tee -a $LOG_FILE

@@ -227,7 +227,7 @@ class LLMInferenceSimulator:
         if self.config.workload_spec.arrival_process == "poisson":
             # Generate Poisson arrival times
             current_time = 0.0
-            while current_time < duration:
+            while current_time < self.total_duration:
                 # Inter-arrival time is exponentially distributed
                 inter_arrival = random.expovariate(arrival_rate)
                 current_time += inter_arrival
@@ -239,7 +239,7 @@ class LLMInferenceSimulator:
             # Fixed inter-arrival time
             inter_arrival = 1.0 / arrival_rate
             current_time = inter_arrival
-            while current_time < duration:
+            while current_time < self.total_duration:
                 self._create_request_arrival(current_time)
                 current_time += inter_arrival
 
@@ -585,55 +585,136 @@ class LLMInferenceSimulator:
         return False
 
     def _print_summary(self):
-        """Print simulation summary."""
-        stats = self.metrics.compute_statistics()
-
-        print("\n" + "="*60)
+        """Print simulation summary with load analysis."""
+        import numpy as np
+        
+        # Calculate load
+        arrival_rate = self.config.workload_spec.arrival_rate
+        avg_output = (self.config.workload_spec.avg_output_length + 
+                     self.config.workload_spec.max_output_length) / 2
+        required_throughput = arrival_rate * avg_output
+        actual_throughput = (self.metrics.total_tokens_generated / 
+                            self.metrics.total_simulation_time if self.metrics.total_simulation_time > 0 else 0)
+        utilization = required_throughput / actual_throughput if actual_throughput > 0 else float('inf')
+        is_overloaded = utilization >= 1.0
+        
+        print()
+        print("=" * 60)
         print("SIMULATION SUMMARY")
-        print("="*60)
+        print("=" * 60)
+        print()
+        
+        # Load Analysis
+        print("Load Analysis:")
+        print(f"  Arrival Rate:         {arrival_rate:.1f} req/s")
+        print(f"  Avg Output Length:    {avg_output:.0f} tok/req")
+        print(f"  Required Throughput:  {required_throughput:.0f} tok/s")
+        print(f"  Actual Throughput:    {actual_throughput:.1f} tok/s")
+        print(f"  Utilization:          {utilization*100:.0f}%", end="")
+        
+        if is_overloaded:
+            print(" ⚠️  OVERLOAD")
+        elif utilization >= 0.8:
+            print(" ⚠️  HIGH LOAD")
+        else:
+            print(" ✅ NORMAL")
+        print()
+        
+        if is_overloaded:
+            print("-" * 60)
+            print("Metrics Reliability:")
+            print("  ✅ Throughput:    System capacity (reliable)")
+            print("  ✅ Completion:    Capacity/Load ratio (reliable)")
+            print("  ❌ TTFT/Latency:  Unreliable (early arrivals only)")
+            print("-" * 60)
+            print()
+        
+        # Requests
+        print("Requests:")
+        print(f"  Total: {self.metrics.total_requests}")
+        print(f"  Completed: {self.metrics.completed_requests}")
+        
+        if self.metrics.rejected_requests > 0:
+            print(f"  Rejected: {self.metrics.rejected_requests}")
+        
+        print()
+        
+        # Throughput
+        if is_overloaded:
+            print("Throughput (= System Capacity):")
+        else:
+            print("Throughput:")
+        
+        if self.metrics.total_simulation_time > 0:
+            req_per_sec = self.metrics.completed_requests / self.metrics.total_simulation_time
+            tok_per_sec = self.metrics.total_tokens_generated / self.metrics.total_simulation_time
+            print(f"  Requests/sec: {req_per_sec:.2f}")
+            print(f"  Tokens/sec: {tok_per_sec:.2f}")
+        
+        print()
+        # Calculate xPU utilization
+        total_time = self.metrics.gpu_busy_time + self.metrics.gpu_idle_time
+        xpu_util = self.metrics.gpu_busy_time / total_time if total_time > 0 else 0.0
+        print(f"xPU Utilization: {xpu_util:.1%}")
+        print()
+        
+        # Memory
+        xpu = self.config.cluster_spec.xpu_spec
+        total_mem = self.config.cluster_spec.n_xpus_per_node * self.config.cluster_spec.n_nodes * xpu.memory_size_gb
+        
+        print("Memory Usage:")
+        print(f"  Peak:        {self.metrics.peak_memory_usage_gb:.2f}GB / {total_mem:.0f}GB ({self.metrics.peak_memory_usage_gb/total_mem*100:.1f}%)")
+        
+        if self.metrics.memory_samples:
+            mem_array = np.array(self.metrics.memory_samples)
+            p95 = np.percentile(mem_array, 95)
+            p50 = np.percentile(mem_array, 50)
+            print(f"  P95:         {p95:.2f}GB / {total_mem:.0f}GB ({p95/total_mem*100:.1f}%)")
+            print(f"  P50 (Med):   {p50:.2f}GB / {total_mem:.0f}GB ({p50/total_mem*100:.1f}%)")
+        
+        print()
+        
+        # Latency
+        if is_overloaded:
+            print("First Token Latency (⚠️  Not representative - early arrivals only):")
+        else:
+            print("First Token Latency (seconds):")
+        
+        if self.metrics.first_token_latencies:
+            ftl = np.array(self.metrics.first_token_latencies)
+            print(f"  Mean: {np.mean(ftl):.4f}")
+            print(f"  P50:  {np.percentile(ftl, 50):.4f}")
+            print(f"  P90:  {np.percentile(ftl, 90):.4f}")
+            print(f"  P95:  {np.percentile(ftl, 95):.4f}")
+            print(f"  P99:  {np.percentile(ftl, 99):.4f}")
+            print()
+        
+        if self.metrics.end_to_end_latencies:
+            e2e = np.array(self.metrics.end_to_end_latencies)
+            if is_overloaded:
+                print("End-to-End Latency (⚠️  Not representative):")
+            else:
+                print("End-to-End Latency (seconds):")
+            print(f"  Mean: {np.mean(e2e):.4f}")
+            print(f"  P50:  {np.percentile(e2e, 50):.4f}")
+            print(f"  P90:  {np.percentile(e2e, 90):.4f}")
+            print(f"  P95:  {np.percentile(e2e, 95):.4f}")
+            print(f"  P99:  {np.percentile(e2e, 99):.4f}")
+            print()
+        
+        # Recommendations
+        if is_overloaded:
+            stable_arrival = actual_throughput * 0.8 / avg_output
+            print("Recommendation:")
+            print(f"  System cannot handle workload ({utilization:.1f}x overloaded)")
+            print(f"  For stable operation: Reduce arrival to {stable_arrival:.1f} req/s (80% util)")
+            print()
+        elif utilization >= 0.8:
+            print("Recommendation:")
+            print(f"  System near capacity ({utilization*100:.0f}% util)")
+            print(f"  Consider adding capacity for headroom")
+            print()
+        
+        print("=" * 60)
 
-        print(f"\nRequests:")
-        print(f"  Total: {stats['total_requests']}")
-        print(f"  Completed: {stats['completed_requests']}")
-        if stats['rejected_requests'] > 0:
-            print(f"  Rejected (OOM): {stats['rejected_requests']}")
 
-        print(f"\nThroughput:")
-        print(f"  Requests/sec: {stats.get('throughput_requests_per_sec', 0):.2f}")
-        print(f"  Tokens/sec: {stats.get('throughput_tokens_per_sec', 0):.2f}")
-
-        print(f"\nxPU Utilization: {stats.get('gpu_utilization', 0)*100:.1f}%")
-
-        # Memory statistics (Peak + P95 + P50)
-        if 'memory_peak_gb' in stats:
-            mem_stats = self.memory_manager.get_memory_stats()
-            total_mem = mem_stats['total_memory_gb']
-
-            peak = stats['memory_peak_gb']
-            p95 = stats['memory_p95_gb']
-            p50 = stats['memory_p50_gb']
-
-            print(f"\nMemory Usage:")
-            print(f"  Peak:       {peak:>6.2f}GB / {total_mem:.0f}GB ({peak/total_mem*100:>5.1f}%)")
-            print(f"  P95:        {p95:>6.2f}GB / {total_mem:.0f}GB ({p95/total_mem*100:>5.1f}%)")
-            print(f"  P50 (Med):  {p50:>6.2f}GB / {total_mem:.0f}GB ({p50/total_mem*100:>5.1f}%)")
-
-        if 'first_token_latency' in stats:
-            ftl = stats['first_token_latency']
-            print(f"\nFirst Token Latency (seconds):")
-            print(f"  Mean: {ftl['mean']:.4f}")
-            print(f"  P50:  {ftl['p50']:.4f}")
-            print(f"  P90:  {ftl['p90']:.4f}")
-            print(f"  P95:  {ftl['p95']:.4f}")
-            print(f"  P99:  {ftl['p99']:.4f}")
-
-        if 'end_to_end_latency' in stats:
-            e2e = stats['end_to_end_latency']
-            print(f"\nEnd-to-End Latency (seconds):")
-            print(f"  Mean: {e2e['mean']:.4f}")
-            print(f"  P50:  {e2e['p50']:.4f}")
-            print(f"  P90:  {e2e['p90']:.4f}")
-            print(f"  P95:  {e2e['p95']:.4f}")
-            print(f"  P99:  {e2e['p99']:.4f}")
-
-        print("\n" + "="*60)

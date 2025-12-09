@@ -1,0 +1,8 @@
+{
+  "status": "failed",
+  "error_summary": "1. Model weights (130.39GB per xPU with TP=1) exceed xPU memory (80.0GB). Increase tensor_parallel_size or use larger xPUs.",
+  "error_log": "results/cluster_benchmark_20251208_132757/h100-80gb_1xpu_tp1_error.log",
+  "xpu": "h100-80gb",
+  "n_xpus": 1,
+  "tp": 1
+}

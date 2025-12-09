@@ -1,0 +1,8 @@
+{
+  "status": "failed",
+  "error_summary": "Unknown error",
+  "error_log": "results/cluster_benchmark_20251208_174949/h100-80gb_4xpu_tp4_error.log",
+  "xpu": "h100-80gb",
+  "n_xpus": 4,
+  "tp": 4
+}

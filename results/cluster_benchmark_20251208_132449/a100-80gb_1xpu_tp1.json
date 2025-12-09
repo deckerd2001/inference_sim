@@ -1,0 +1,8 @@
+{
+  "status": "failed",
+  "error_summary": "    raise ValueError(error_msg.strip())",
+  "error_log": "results/cluster_benchmark_20251208_132449/a100-80gb_1xpu_tp1_error.log",
+  "xpu": "a100-80gb",
+  "n_xpus": 1,
+  "tp": 1
+}

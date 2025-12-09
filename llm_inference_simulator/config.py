@@ -103,6 +103,9 @@ class SimulatorConfig:
     parallelism_spec: ParallelismSpec
     scheduler_spec: SchedulerSpec
     
+    
+    # Warm-up period (seconds to run before starting measurement)
+    warm_up_duration_s: float = 0.0  # 0 = no warm-up
     simulation_duration_s: float = 60.0
     max_requests: Optional[int] = None
     random_seed: int = 42
@@ -147,6 +150,15 @@ class SimulatorConfig:
             errors.append(
                 f"Total parallelism ({tp_size}×{pp_size}×{dp_size}={total_parallel}) "
                 f"exceeds available xPUs ({total_xpus})"
+            )
+        
+
+        # Check TP doesn't exceed single node
+        if self.parallelism_spec.tensor_parallel_size > self.cluster_spec.n_xpus_per_node:
+            warnings.append(
+                f"TP size ({self.parallelism_spec.tensor_parallel_size}) exceeds xPUs per node "
+                f"({self.cluster_spec.n_xpus_per_node}). TP across nodes is unrealistic due to "
+                f"high inter-node communication latency. Consider using PP (Pipeline Parallelism) instead."
             )
         
         if total_parallel < total_xpus:

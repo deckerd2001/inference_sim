@@ -337,7 +337,7 @@ class PerformanceModel:
             self.tp_comm_strategy.attention_output.collective_op,
             activation_size,
             self.parallel.tensor_parallel_size,
-            self.xpu.memory_bandwidth_gbs,
+            self.xpu.intra_node_bandwidth_gbs,
             5.0,  # latency_us
             self.tp_comm_strategy.attention_output.algorithm,
         )
@@ -353,7 +353,7 @@ class PerformanceModel:
             self.tp_comm_strategy.mlp_down_projection.collective_op,
             activation_size,
             self.parallel.tensor_parallel_size,
-            self.xpu.memory_bandwidth_gbs,
+            self.xpu.intra_node_bandwidth_gbs,  # NVLink bandwidth for TP communication
             5.0,
             self.tp_comm_strategy.mlp_down_projection.algorithm,
         )
