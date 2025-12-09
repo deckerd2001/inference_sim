@@ -37,7 +37,7 @@ echo "=======================================================================" |
 echo "Start Time: $(date)" | tee -a $LOG_FILE
 echo "Random Seed: $RANDOM_SEED" | tee -a $LOG_FILE
 echo "" | tee -a $LOG_FILE
-echo "⚠️  Note: Only TP (Tensor Parallelism) is implemented" | tee -a $LOG_FILE
+echo "  Note: Only TP (Tensor Parallelism) is implemented" | tee -a $LOG_FILE
 echo "" | tee -a $LOG_FILE
 echo "Configuration:" | tee -a $LOG_FILE
 echo "  Model:           $MODEL" | tee -a $LOG_FILE
@@ -87,7 +87,7 @@ for xpu in "${XPUS[@]}"; do
 
         if [ $exit_code -eq 0 ] && [ -f $result_file ]; then
             echo "✓ Completed successfully" | tee -a $LOG_FILE
-            
+
             # Extract metrics using helper script
             metrics=$(python3 scripts/extract_metrics.py "$result_file")
             echo "  $metrics" | tee -a $LOG_FILE
@@ -97,7 +97,7 @@ for xpu in "${XPUS[@]}"; do
 
             # Parse error using helper script
             error_summary=$(python3 scripts/parse_error.py "$output")
-            
+
             # Create error JSON using helper script
             python3 scripts/create_error_json.py "$result_file" "$error_summary" "$error_log_file" "$xpu" "$n_xpus" "$tp"
 

@@ -80,6 +80,34 @@ def create_config_from_args(args) -> SimulatorConfig:
         max_batch_size=args.max_batch_size,
     )
     
+
+    # Disaggregation configuration
+    disaggregation_spec = None
+    if args.disaggregated:
+        from llm_inference_simulator import DisaggregationSpec
+        
+        prefill_cluster = ClusterSpec(
+            n_xpus_per_node=args.prefill_n_xpus,
+            n_nodes=1,
+            xpu_spec=get_xpu(args.prefill_xpu),
+        )
+        
+        decode_cluster = ClusterSpec(
+            n_xpus_per_node=args.decode_n_xpus,
+            n_nodes=1,
+            xpu_spec=get_xpu(args.decode_xpu),
+        )
+        
+        disaggregation_spec = DisaggregationSpec(
+            enabled=True,
+            prefill_cluster=prefill_cluster,
+            prefill_parallelism=ParallelismSpec(tensor_parallel_size=args.prefill_tp),
+            decode_cluster=decode_cluster,
+            decode_parallelism=ParallelismSpec(tensor_parallel_size=args.decode_tp),
+            transfer_bandwidth_gbs=args.transfer_bandwidth,
+            transfer_latency_ms=args.transfer_latency,
+        )
+    
     return SimulatorConfig(
         model_spec=model_spec,
         workload_spec=workload_spec,
@@ -89,7 +117,8 @@ def create_config_from_args(args) -> SimulatorConfig:
         simulation_duration_s=args.duration,
         warm_up_duration_s=args.warm_up,
         random_seed=args.seed,
-    )
+
+        disaggregation_spec=disaggregation_spec,    )
 
 
 def metrics_to_dict(metrics) -> dict:
@@ -192,6 +221,33 @@ def main():
                         help='Warm-up duration in seconds (default: 0)')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--output', type=str, help='Output JSON file')
+    
+    # Disaggregation mode
+    parser.add_argument('--disaggregated', action='store_true',
+                        help='Enable disaggregated prefill/decode mode')
+    
+    # Prefill cluster
+    parser.add_argument('--prefill-xpu', type=str, default='a100-80gb',
+                        help='xPU type for prefill cluster')
+    parser.add_argument('--prefill-n-xpus', type=int, default=4,
+                        help='Number of xPUs for prefill cluster')
+    parser.add_argument('--prefill-tp', type=int, default=4,
+                        help='Tensor parallel size for prefill')
+    
+    # Decode cluster
+    parser.add_argument('--decode-xpu', type=str, default='mi300x',
+                        help='xPU type for decode cluster')
+    parser.add_argument('--decode-n-xpus', type=int, default=8,
+                        help='Number of xPUs for decode cluster')
+    parser.add_argument('--decode-tp', type=int, default=8,
+                        help='Tensor parallel size for decode')
+    
+    # Transfer settings
+    parser.add_argument('--transfer-bandwidth', type=float, default=100.0,
+                        help='Inter-cluster bandwidth in GB/s (default: 100)')
+    parser.add_argument('--transfer-latency', type=float, default=1.0,
+                        help='Inter-cluster latency in ms (default: 1.0)')
+
     parser.add_argument('--summary', action='store_true', help='Print config summary')
     
     if len(sys.argv) == 1:

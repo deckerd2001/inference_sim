@@ -34,6 +34,35 @@ class InterconnectSpec:
     inter_node_latency_us: float = 10.0
 
 
+
+
+@dataclass
+class DisaggregationSpec:
+    """
+    Disaggregation configuration for separating prefill and decode clusters.
+    
+    Benefits:
+    - Prefill cluster: Compute-optimized (fewer GPUs, high compute)
+    - Decode cluster: Memory-optimized (more GPUs, high memory bandwidth)
+    """
+    enabled: bool = False
+    
+    # Prefill cluster (compute-heavy, short bursts)
+    prefill_cluster: 'ClusterSpec' = None
+    prefill_parallelism: 'ParallelismSpec' = None
+    
+    # Decode cluster (memory-heavy, continuous)
+    decode_cluster: 'ClusterSpec' = None
+    decode_parallelism: 'ParallelismSpec' = None
+    
+    # Inter-cluster network for KV cache transfer
+    transfer_bandwidth_gbs: float = 100.0  # GB/s (e.g., 100 Gbps network = 12.5 GB/s)
+    transfer_latency_ms: float = 1.0       # Base latency in milliseconds
+    
+    # Optional: KV cache compression
+    kv_compression_ratio: float = 1.0  # 1.0 = no compression
+
+
 @dataclass
 class ClusterSpec:
     """Cluster configuration."""
@@ -102,6 +131,7 @@ class SimulatorConfig:
     cluster_spec: ClusterSpec
     parallelism_spec: ParallelismSpec
     scheduler_spec: SchedulerSpec
+    disaggregation_spec: Optional[DisaggregationSpec] = None  # For disaggregated prefill/decode
     
     
     # Warm-up period (seconds to run before starting measurement)
@@ -115,6 +145,59 @@ class SimulatorConfig:
         """Automatically validate configuration after creation."""
         self.validate()
     
+
+    @property
+    def is_disaggregated(self) -> bool:
+        """Check if disaggregation is enabled."""
+        return (self.disaggregation_spec is not None and 
+                self.disaggregation_spec.enabled)
+    
+    def _validate_disaggregated(self):
+        """Validate disaggregated configuration."""
+        errors = []
+        spec = self.disaggregation_spec
+        
+        # Validate prefill cluster
+        prefill_mem_per_xpu = (
+            self.model_spec.n_params * self.model_spec.weight_dtype.bytes_per_element() / 
+            (1024**3) / spec.prefill_parallelism.tensor_parallel_size
+        )
+        if prefill_mem_per_xpu > spec.prefill_cluster.xpu_spec.memory_size_gb:
+            errors.append(
+                f"Prefill: Model weights ({prefill_mem_per_xpu:.2f}GB per xPU with TP={spec.prefill_parallelism.tensor_parallel_size}) "
+                f"exceed xPU memory ({spec.prefill_cluster.xpu_spec.memory_size_gb}GB). "
+                f"Increase tensor_parallel_size or use larger xPUs."
+            )
+        
+        # Validate decode cluster
+        decode_mem_per_xpu = (
+            self.model_spec.n_params * self.model_spec.weight_dtype.bytes_per_element() /
+            (1024**3) / spec.decode_parallelism.tensor_parallel_size
+        )
+        if decode_mem_per_xpu > spec.decode_cluster.xpu_spec.memory_size_gb:
+            errors.append(
+                f"Decode: Model weights ({decode_mem_per_xpu:.2f}GB per xPU with TP={spec.decode_parallelism.tensor_parallel_size}) "
+                f"exceed xPU memory ({spec.decode_cluster.xpu_spec.memory_size_gb}GB). "
+                f"Increase tensor_parallel_size or use larger xPUs."
+            )
+        
+        # Check TP <= num xPUs
+        if spec.prefill_parallelism.tensor_parallel_size > spec.prefill_cluster.total_xpus:
+            errors.append(
+                f"Prefill: tensor_parallel_size ({spec.prefill_parallelism.tensor_parallel_size}) "
+                f"exceeds total xPUs ({spec.prefill_cluster.total_xpus})"
+            )
+        
+        if spec.decode_parallelism.tensor_parallel_size > spec.decode_cluster.total_xpus:
+            errors.append(
+                f"Decode: tensor_parallel_size ({spec.decode_parallelism.tensor_parallel_size}) "
+                f"exceeds total xPUs ({spec.decode_cluster.total_xpus})"
+            )
+        
+        if errors:
+            error_msg = "\n".join(f"  {i+1}. {e}" for i, e in enumerate(errors))
+            raise ValueError(f"Disaggregated configuration validation failed:\n{error_msg}")
+    
     def validate(self):
         """
         Validate configuration for common errors.
@@ -122,6 +205,11 @@ class SimulatorConfig:
         Raises:
             ValueError: If configuration is invalid
         """
+        # For disaggregated mode, validate prefill and decode clusters separately
+        if self.is_disaggregated:
+            self._validate_disaggregated()
+            return  # Skip regular validation
+        
         errors = []
         warnings = []
         

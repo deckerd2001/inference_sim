@@ -4,7 +4,7 @@ Event definitions for the simulator.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 
 class EventType(Enum):
@@ -17,7 +17,9 @@ class EventType(Enum):
     DECODE_STEP_FINISHED = "decode_step_finished"
     TOKEN_EMITTED = "token_emitted"
     REQUEST_FINISHED = "request_finished"
-    BATCHING_WAKEUP = "batching_wakeup"  # NEW
+    BATCHING_WAKEUP = "batching_wakeup"
+    KV_TRANSFER_STARTED = "kv_transfer_started"  # Disaggregation
+    KV_TRANSFER_FINISHED = "kv_transfer_finished"  # Disaggregation
 
 
 @dataclass
@@ -25,7 +27,7 @@ class Event:
     """Base class for all events."""
     timestamp: float
     event_type: EventType
-    
+
     def __lt__(self, other):
         """Compare events by timestamp for priority queue."""
         return self.timestamp < other.timestamp
@@ -37,8 +39,8 @@ class RequestArrivedEvent(Event):
     request_id: int
     input_text: str
     requested_output_tokens: int
-    
-    def __init__(self, timestamp: float, request_id: int, 
+
+    def __init__(self, timestamp: float, request_id: int,
                  input_text: str, requested_output_tokens: int):
         super().__init__(timestamp, EventType.REQUEST_ARRIVED)
         self.request_id = request_id
@@ -51,7 +53,7 @@ class RequestTokenizedEvent(Event):
     """Request has been tokenized."""
     request_id: int
     input_length: int
-    
+
     def __init__(self, timestamp: float, request_id: int, input_length: int):
         super().__init__(timestamp, EventType.REQUEST_TOKENIZED)
         self.request_id = request_id
@@ -62,7 +64,7 @@ class RequestTokenizedEvent(Event):
 class PrefillStartedEvent(Event):
     """Prefill phase has started."""
     batch_id: int
-    
+
     def __init__(self, timestamp: float, batch_id: int):
         super().__init__(timestamp, EventType.PREFILL_STARTED)
         self.batch_id = batch_id
@@ -72,7 +74,7 @@ class PrefillStartedEvent(Event):
 class PrefillFinishedEvent(Event):
     """Prefill phase has finished."""
     batch_id: int
-    
+
     def __init__(self, timestamp: float, batch_id: int):
         super().__init__(timestamp, EventType.PREFILL_FINISHED)
         self.batch_id = batch_id
@@ -83,7 +85,7 @@ class DecodeStepStartedEvent(Event):
     """A decode step has started."""
     batch_id: int
     step: int
-    
+
     def __init__(self, timestamp: float, batch_id: int, step: int):
         super().__init__(timestamp, EventType.DECODE_STEP_STARTED)
         self.batch_id = batch_id
@@ -95,7 +97,7 @@ class DecodeStepFinishedEvent(Event):
     """A decode step has finished."""
     batch_id: int
     step: int
-    
+
     def __init__(self, timestamp: float, batch_id: int, step: int):
         super().__init__(timestamp, EventType.DECODE_STEP_FINISHED)
         self.batch_id = batch_id
@@ -108,8 +110,8 @@ class TokenEmittedEvent(Event):
     request_id: int
     token_id: int
     token_text: str
-    
-    def __init__(self, timestamp: float, request_id: int, 
+
+    def __init__(self, timestamp: float, request_id: int,
                  token_id: int, token_text: str):
         super().__init__(timestamp, EventType.TOKEN_EMITTED)
         self.request_id = request_id
@@ -122,8 +124,8 @@ class RequestFinishedEvent(Event):
     """A request has finished."""
     request_id: int
     total_output_tokens: int
-    
-    def __init__(self, timestamp: float, request_id: int, 
+
+    def __init__(self, timestamp: float, request_id: int,
                  total_output_tokens: int):
         super().__init__(timestamp, EventType.REQUEST_FINISHED)
         self.request_id = request_id
@@ -133,6 +135,33 @@ class RequestFinishedEvent(Event):
 @dataclass
 class BatchingWakeupEvent(Event):
     """Wakeup event to check if batching window has expired."""
-    
+
     def __init__(self, timestamp: float):
         super().__init__(timestamp, EventType.BATCHING_WAKEUP)
+
+
+@dataclass
+class KVTransferStartedEvent(Event):
+    """KV cache transfer from prefill to decode cluster has started."""
+    batch_id: int
+    request_ids: List[int]
+    total_kv_size_gb: float
+
+    def __init__(self, timestamp: float, batch_id: int,
+                 request_ids: List[int], total_kv_size_gb: float):
+        super().__init__(timestamp, EventType.KV_TRANSFER_STARTED)
+        self.batch_id = batch_id
+        self.request_ids = request_ids
+        self.total_kv_size_gb = total_kv_size_gb
+
+
+@dataclass
+class KVTransferFinishedEvent(Event):
+    """KV cache transfer has completed and requests are ready for decode."""
+    batch_id: int
+    request_ids: List[int]
+
+    def __init__(self, timestamp: float, batch_id: int, request_ids: List[int]):
+        super().__init__(timestamp, EventType.KV_TRANSFER_FINISHED)
+        self.batch_id = batch_id
+        self.request_ids = request_ids

@@ -27,6 +27,7 @@ from .config import (
     WorkloadSpec,
     SchedulerSpec,
     SimulatorConfig,
+    DisaggregationSpec,
 )
 
 # Model catalog
@@ -50,7 +51,7 @@ __all__ = [
     "DataType",
     "get_xpu",
     "list_xpus",
-    
+
     # Config
     "ModelSpec",
     "ClusterSpec",
@@ -59,11 +60,11 @@ __all__ = [
     "WorkloadSpec",
     "SchedulerSpec",
     "SimulatorConfig",
-    
+
     # Catalogs
     "get_model",
     "list_models",
-    
+
     # Simulator
     "LLMInferenceSimulator",
 ]
