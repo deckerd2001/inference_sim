@@ -1,0 +1,130 @@
+{
+  "aggregated_mi300x_rate1.0": {
+    "total_requests": 31,
+    "completed_requests": 25,
+    "rejected_requests": 0,
+    "simulation_time": 19.904042342100844,
+    "throughput": {
+      "requests_per_sec": 1.2560262669417777,
+      "tokens_per_sec": 142.08169131645388
+    },
+    "xpu_utilization": 1.0,
+    "memory": {
+      "peak_memory_gb": 19.830028295516968,
+      "p95_memory_gb": 19.806445837020874,
+      "p50_memory_gb": 17.965625524520874
+    },
+    "first_token_latency": {
+      "mean": 0.12256442726281637,
+      "p50": 0.02377260117466129,
+      "p90": 0.3403919788078007,
+      "p95": 0.513152471722289,
+      "p99": 0.5938802102850139
+    },
+    "end_to_end_latency": {
+      "mean": 0.5412178943796446,
+      "p50": 0.5218876257068228,
+      "p90": 0.8868410262066974,
+      "p95": 0.90230555034925,
+      "p99": 0.9366568304245725
+    },
+    "config_name": "aggregated_mi300x",
+    "arrival_rate": 1.0
+  },
+  "aggregated_mi300x_rate1.5": {
+    "total_requests": 40,
+    "completed_requests": 31,
+    "rejected_requests": 0,
+    "simulation_time": 19.782997424445963,
+    "throughput": {
+      "requests_per_sec": 1.5670021753980072,
+      "tokens_per_sec": 196.93678952743988
+    },
+    "xpu_utilization": 1.0,
+    "memory": {
+      "peak_memory_gb": 21.36895728111267,
+      "p95_memory_gb": 20.697559118270874,
+      "p50_memory_gb": 18.026660680770874
+    },
+    "first_token_latency": {
+      "mean": 0.15140908112916585,
+      "p50": 0.031225357654157015,
+      "p90": 0.38881859574588873,
+      "p95": 0.45779031606108145,
+      "p99": 0.7544959448258604
+    },
+    "end_to_end_latency": {
+      "mean": 0.6177199042168747,
+      "p50": 0.6573425145239362,
+      "p90": 0.9749421944569079,
+      "p95": 0.9853097285678665,
+      "p99": 1.0888470600448632
+    },
+    "config_name": "aggregated_mi300x",
+    "arrival_rate": 1.5
+  },
+  "disagg_a100_mi300x_100gbps_rate1.0": {
+    "total_requests": 31,
+    "completed_requests": 25,
+    "rejected_requests": 0,
+    "simulation_time": 19.993586822268878,
+    "throughput": {
+      "requests_per_sec": 1.2504009521770738,
+      "tokens_per_sec": 141.4453557102706
+    },
+    "xpu_utilization": 1.0,
+    "memory": {
+      "peak_memory_gb": 54.24677586555481,
+      "p95_memory_gb": 54.24677586555481,
+      "p50_memory_gb": 52.227317094802856
+    },
+    "first_token_latency": {
+      "mean": 0.2087058120415634,
+      "p50": 0.113342822068069,
+      "p90": 0.4403351536524714,
+      "p95": 0.5964905030799775,
+      "p99": 0.6881574134320734
+    },
+    "end_to_end_latency": {
+      "mean": 0.6620068071419202,
+      "p50": 0.635880086681194,
+      "p90": 1.0423692151462185,
+      "p95": 1.0643806792828883,
+      "p99": 1.0962472980328826
+    },
+    "config_name": "disagg_a100_mi300x_100gbps",
+    "arrival_rate": 1.0
+  },
+  "disagg_a100_mi300x_100gbps_rate1.5": {
+    "total_requests": 40,
+    "completed_requests": 32,
+    "rejected_requests": 0,
+    "simulation_time": 19.86746363341047,
+    "throughput": {
+      "requests_per_sec": 1.6106736416110328,
+      "tokens_per_sec": 198.96852829026287
+    },
+    "xpu_utilization": 1.0,
+    "memory": {
+      "peak_memory_gb": 55.463202714920044,
+      "p95_memory_gb": 54.342822313308716,
+      "p50_memory_gb": 52.402642488479614
+    },
+    "first_token_latency": {
+      "mean": 0.22716537031273643,
+      "p50": 0.1392178852420387,
+      "p90": 0.4616083092420561,
+      "p95": 0.5354880837653244,
+      "p99": 0.5993582907933948
+    },
+    "end_to_end_latency": {
+      "mean": 0.7292338462718192,
+      "p50": 0.7585911973983754,
+      "p90": 1.1476591962331415,
+      "p95": 1.1567388658317634,
+      "p99": 1.1923398884671637
+    },
+    "config_name": "disagg_a100_mi300x_100gbps",
+    "arrival_rate": 1.5
+  }
+}

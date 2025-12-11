@@ -52,6 +52,19 @@ class SimulationMetrics:
     peak_memory_usage_gb: float = 0.0
     memory_samples: List[float] = field(default_factory=list)
 
+    # Disaggregation-specific metrics
+    prefill_gpu_busy_time: float = 0.0
+    decode_gpu_busy_time: float = 0.0
+    transfer_time_total: float = 0.0
+
+    prefill_batches: int = 0
+    decode_steps: int = 0
+    transfers_completed: int = 0
+
+    transfer_latencies: List[float] = field(default_factory=list)
+    prefill_batch_sizes: List[int] = field(default_factory=list)
+    decode_batch_sizes: List[int] = field(default_factory=list)
+
     def compute_statistics(self) -> Dict:
         """Compute summary statistics."""
         stats = {
@@ -737,11 +750,18 @@ class LLMInferenceSimulator:
                     batch_size=batch.batch_size,
                     kv_cache_length=batch.max_kv_cache_length
                 )
+                # Track decode metrics for continuing batch
+                self.metrics.gpu_busy_time += decode_time
+                self.metrics.decode_gpu_busy_time += decode_time
+                self.metrics.decode_steps += 1
+                # Don't append batch size again - same batch continuing
             else:
                 decode_time = self.performance_model.estimate_decode_time(
                     batch_size=batch.batch_size,
                     kv_cache_length=batch.max_kv_cache_length
                 )
+                # Track metrics for aggregated mode
+                self.metrics.gpu_busy_time += decode_time
 
             next_event = DecodeStepFinishedEvent(
                 timestamp=self.current_time + decode_time,
@@ -790,20 +810,27 @@ class LLMInferenceSimulator:
         batch = self.prefill_scheduler.batch_manager.get_batch(event.batch_id)
         if not batch:
             return
-        
+
         # Update request status and prepare for decode
         for req in batch.requests:
             req.status = RequestStatus.QUEUED
             req.transfer_end_time = self.current_time
             # Initialize decode parameters
             req.current_kv_cache_length = req.input_length  # KV cache starts with input length
-        
+
+            # Track transfer metrics
+            if req.transfer_latency:
+                self.metrics.transfer_latencies.append(req.transfer_latency)
+                self.metrics.transfer_time_total += req.transfer_latency
+
+        self.metrics.transfers_completed += 1
+
         # Move to decode scheduler
         self.decode_scheduler.move_to_decode_queue(batch.requests)
-        
+
         # Remove batch from prefill cluster (it's done with prefill)
         self.prefill_scheduler.batch_manager.remove_batch(batch)
-        
+
         # Try to schedule next operations
         self._try_schedule_prefill()
         self._try_schedule_decode()
@@ -849,9 +876,12 @@ class LLMInferenceSimulator:
                     batch_id=batch.batch_id
                 )
                 self.schedule_event(finish_event)
-                
+
                 # Track prefill cluster busy time
                 self.metrics.gpu_busy_time += prefill_time
+                self.metrics.prefill_gpu_busy_time += prefill_time
+                self.metrics.prefill_batches += 1
+                self.metrics.prefill_batch_sizes.append(batch.batch_size)
 
         else:
             # AGGREGATED MODE: Use single cluster
@@ -929,9 +959,12 @@ class LLMInferenceSimulator:
                     step=batch.current_decode_step
                 )
                 self.schedule_event(finish_event)
-                
+
                 # Track decode cluster busy time
                 self.metrics.gpu_busy_time += decode_time
+                self.metrics.decode_gpu_busy_time += decode_time
+                self.metrics.decode_steps += 1
+                self.metrics.decode_batch_sizes.append(batch.batch_size)
 
         else:
             # AGGREGATED MODE: Use single cluster
@@ -1081,6 +1114,75 @@ class LLMInferenceSimulator:
         print(f"xPU Utilization: {xpu_util:.1%}")
         print()
 
+        # Disaggregation Analysis (if enabled)
+        if self.is_disaggregated:
+            print("=" * 60)
+            print("DISAGGREGATION ANALYSIS")
+            print("=" * 60)
+            print()
+
+            # Prefill cluster analysis
+            print("Prefill Cluster:")
+            prefill_util = (self.metrics.prefill_gpu_busy_time / self.metrics.total_simulation_time
+                          if self.metrics.total_simulation_time > 0 else 0.0)
+            print(f"  Utilization:      {prefill_util:.1%}")
+            print(f"  Batches:          {self.metrics.prefill_batches}")
+            if self.metrics.prefill_batch_sizes:
+                avg_prefill_batch = np.mean(self.metrics.prefill_batch_sizes)
+                print(f"  Avg Batch Size:   {avg_prefill_batch:.1f}")
+            print(f"  [DEBUG] Busy Time: {self.metrics.prefill_gpu_busy_time:.2f}s")
+            print()
+
+            # Decode cluster analysis
+            print("Decode Cluster:")
+            decode_util = (self.metrics.decode_gpu_busy_time / self.metrics.total_simulation_time
+                         if self.metrics.total_simulation_time > 0 else 0.0)
+            print(f"  Utilization:      {decode_util:.1%}", end="")
+
+            # Indicate bottleneck
+            if decode_util > prefill_util and decode_util > 0.9:
+                print("  ⚠️ BOTTLENECK")
+            elif prefill_util > decode_util and prefill_util > 0.9:
+                print("  (Prefill may be bottleneck)")
+            else:
+                print()
+
+            print(f"  Decode Steps:     {self.metrics.decode_steps}")
+            if self.metrics.decode_batch_sizes:
+                avg_decode_batch = np.mean(self.metrics.decode_batch_sizes)
+                print(f"  Avg Batch Size:   {avg_decode_batch:.1f}")
+            print(f"  [DEBUG] Busy Time: {self.metrics.decode_gpu_busy_time:.2f}s")
+            print(f"  [DEBUG] Tokens Generated: {self.metrics.total_tokens_generated}")
+            print(f"  [DEBUG] Tokens/Step: {self.metrics.total_tokens_generated / self.metrics.decode_steps if self.metrics.decode_steps > 0 else 0:.1f}")
+            print()
+
+            # Debug: Overall timing
+            print("Timing Debug:")
+            print(f"  Total Simulation Time: {self.metrics.total_simulation_time:.2f}s")
+            print(f"  Total Busy Time: {self.metrics.gpu_busy_time:.2f}s")
+            print(f"  Prefill Busy: {self.metrics.prefill_gpu_busy_time:.2f}s ({self.metrics.prefill_gpu_busy_time/self.metrics.gpu_busy_time*100 if self.metrics.gpu_busy_time > 0 else 0:.1f}%)")
+            print(f"  Decode Busy: {self.metrics.decode_gpu_busy_time:.2f}s ({self.metrics.decode_gpu_busy_time/self.metrics.gpu_busy_time*100 if self.metrics.gpu_busy_time > 0 else 0:.1f}%)")
+            print()
+
+            # Transfer analysis
+            print("KV Cache Transfer:")
+            print(f"  Transfers:        {self.metrics.transfers_completed}")
+            if self.metrics.transfer_latencies:
+                transfer_arr = np.array(self.metrics.transfer_latencies)
+                avg_transfer = np.mean(transfer_arr)
+                p95_transfer = np.percentile(transfer_arr, 95)
+                print(f"  Avg Latency:      {avg_transfer:.4f}s")
+                print(f"  P95 Latency:      {p95_transfer:.4f}s")
+
+                # Calculate overhead percentage
+                if self.metrics.end_to_end_latencies:
+                    avg_e2e = np.mean(self.metrics.end_to_end_latencies)
+                    transfer_overhead_pct = (avg_transfer / avg_e2e * 100) if avg_e2e > 0 else 0
+                    print(f"  Overhead:         {transfer_overhead_pct:.1f}% of E2E latency")
+            print()
+            print("=" * 60)
+            print()
+
         # Memory
         xpu = self.config.cluster_spec.xpu_spec
         total_mem = self.config.cluster_spec.n_xpus_per_node * self.config.cluster_spec.n_nodes * xpu.memory_size_gb
@@ -1138,6 +1240,48 @@ class LLMInferenceSimulator:
             print(f"  Consider adding capacity for headroom")
             print()
 
+        # Cost Analysis
+        self._print_cost_analysis(actual_throughput)
+
         print("=" * 60)
 
+    def _print_cost_analysis(self, throughput_tok_s: float):
+        """Print cost analysis and efficiency metrics."""
+        print("Cost Analysis:")
+
+        if self.is_disaggregated:
+            # Disaggregated mode: two clusters
+            prefill_xpu = self.config.disaggregation_spec.prefill_cluster.xpu_spec
+            decode_xpu = self.config.disaggregation_spec.decode_cluster.xpu_spec
+
+            n_prefill_xpus = self.config.disaggregation_spec.prefill_cluster.total_xpus
+            n_decode_xpus = self.config.disaggregation_spec.decode_cluster.total_xpus
+
+            prefill_cost_per_hour = prefill_xpu.price_per_hour * n_prefill_xpus
+            decode_cost_per_hour = decode_xpu.price_per_hour * n_decode_xpus
+            total_cost_per_hour = prefill_cost_per_hour + decode_cost_per_hour
+
+            print(f"  Prefill Cluster:  ${prefill_cost_per_hour:.2f}/hour ({n_prefill_xpus}x {prefill_xpu.name})")
+            print(f"  Decode Cluster:   ${decode_cost_per_hour:.2f}/hour ({n_decode_xpus}x {decode_xpu.name})")
+            print(f"  Total:            ${total_cost_per_hour:.2f}/hour")
+        else:
+            # Aggregated mode: single cluster
+            xpu = self.config.cluster_spec.xpu_spec
+            n_xpus = self.config.cluster_spec.total_xpus
+            total_cost_per_hour = xpu.price_per_hour * n_xpus
+
+            print(f"  Cluster:          ${total_cost_per_hour:.2f}/hour ({n_xpus}x {xpu.name})")
+
+        # Efficiency metrics
+        if throughput_tok_s > 0 and total_cost_per_hour > 0:
+            tokens_per_hour = throughput_tok_s * 3600
+            tokens_per_dollar = tokens_per_hour / total_cost_per_hour
+            cost_per_1m_tokens = 1_000_000 / tokens_per_dollar if tokens_per_dollar > 0 else float('inf')
+
+            print(f"\nEfficiency:")
+            print(f"  Tokens/Hour:      {tokens_per_hour:,.0f}")
+            print(f"  Tokens/$:         {tokens_per_dollar:,.0f}")
+            print(f"  Cost/1M tokens:   ${cost_per_1m_tokens:.2f}")
+
+        print()
 
