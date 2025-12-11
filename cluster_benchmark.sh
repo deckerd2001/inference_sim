@@ -1,53 +1,47 @@
 #!/bin/bash
 
 ################################################################################
-# LLM Inference Simulator - Cluster Configuration Benchmark
+# LLM Inference Simulator - Simplified Benchmark
+# Shows only core metrics: Throughput, TTFT, E2E Latency
 ################################################################################
 
 MODEL="llama2-70b"
 
+# Test configurations
 XPUS=(
     "a100-80gb"
     "h100-80gb"
     "mi300x"
 )
 
-WORKLOAD_AVG_INPUT=512
-WORKLOAD_MAX_INPUT=1024
-WORKLOAD_AVG_OUTPUT=128
-WORKLOAD_MAX_OUTPUT=256
-WORKLOAD_ARRIVAL_RATE=10.0
-SIMULATION_DURATION=60.0
-RANDOM_SEED=$RANDOM
-
 TP_CONFIGS=(
-    "1:1:TP=1"
-    "2:2:TP=2"
-    "4:4:TP=4"
-    "8:8:TP=8"
+    "1:1"
+    "2:2"
+    "4:4"
+    "8:8"
 )
 
-RESULTS_DIR="results/cluster_benchmark_$(date +%Y%m%d_%H%M%S)"
-mkdir -p $RESULTS_DIR
-LOG_FILE="$RESULTS_DIR/benchmark.log"
+# Workload settings
+ARRIVAL_RATE=2.0
+DURATION=20.0
+WARM_UP=5.0
+RANDOM_SEED=$RANDOM
 
-echo "=======================================================================" | tee $LOG_FILE
-echo "LLM Inference Simulator - TP Scaling Benchmark" | tee -a $LOG_FILE
-echo "=======================================================================" | tee -a $LOG_FILE
-echo "Start Time: $(date)" | tee -a $LOG_FILE
-echo "Random Seed: $RANDOM_SEED" | tee -a $LOG_FILE
-echo "" | tee -a $LOG_FILE
-echo "  Note: Only TP (Tensor Parallelism) is implemented" | tee -a $LOG_FILE
-echo "" | tee -a $LOG_FILE
-echo "Configuration:" | tee -a $LOG_FILE
-echo "  Model:           $MODEL" | tee -a $LOG_FILE
-echo "  xPUs:            ${XPUS[@]}" | tee -a $LOG_FILE
-echo "  Arrival Rate:    $WORKLOAD_ARRIVAL_RATE req/s" | tee -a $LOG_FILE
-echo "  Duration:        ${SIMULATION_DURATION}s" | tee -a $LOG_FILE
-echo "" | tee -a $LOG_FILE
-echo "Testing ${#XPUS[@]} xPUs × ${#TP_CONFIGS[@]} TP configs = $((${#XPUS[@]} * ${#TP_CONFIGS[@]})) total tests" | tee -a $LOG_FILE
-echo "=======================================================================" | tee -a $LOG_FILE
-echo "" | tee -a $LOG_FILE
+# Create results directory
+RESULTS_DIR="results/benchmark_$(date +%Y%m%d_%H%M%S)"
+mkdir -p $RESULTS_DIR
+
+# Summary file
+SUMMARY_FILE="$RESULTS_DIR/summary.txt"
+
+echo "=======================================================================" | tee $SUMMARY_FILE
+echo "LLM Inference Simulator - Cluster Benchmark"
+echo "Model: $MODEL | Arrival Rate: $ARRIVAL_RATE req/s | Duration: ${DURATION}s"
+echo "=======================================================================" | tee -a $SUMMARY_FILE
+echo ""
+
+# Results array
+declare -a RESULTS
 
 total_tests=$((${#XPUS[@]} * ${#TP_CONFIGS[@]}))
 current_test=0
@@ -56,68 +50,65 @@ for xpu in "${XPUS[@]}"; do
     for config in "${TP_CONFIGS[@]}"; do
         current_test=$((current_test + 1))
 
-        IFS=':' read -r n_xpus tp description <<< "$config"
+        IFS=':' read -r n_xpus tp <<< "$config"
 
-        result_file="$RESULTS_DIR/${xpu}_${n_xpus}xpu_tp${tp}.json"
-        error_log_file="$RESULTS_DIR/${xpu}_${n_xpus}xpu_tp${tp}_error.log"
+        echo "[$current_test/$total_tests] Testing: $xpu (${n_xpus} xPUs, TP=$tp)..."
 
-        echo "-----------------------------------------------------------------------" | tee -a $LOG_FILE
-        echo "[$current_test/$total_tests] Testing: $xpu - $description" | tee -a $LOG_FILE
-        echo "  Cluster: ${n_xpus} xPUs (TP=$tp)" | tee -a $LOG_FILE
-        echo "-----------------------------------------------------------------------" | tee -a $LOG_FILE
+        result_file="$RESULTS_DIR/${xpu}_tp${tp}.json"
 
-        output=$(python3 -m llm_inference_simulator \
+        # Run simulation
+        python3 -m llm_inference_simulator \
             --model $MODEL \
             --xpu $xpu \
             --n-xpus-per-node $n_xpus \
             --tp $tp \
-            --avg-input-length $WORKLOAD_AVG_INPUT \
-            --max-input-length $WORKLOAD_MAX_INPUT \
-            --avg-output-length $WORKLOAD_AVG_OUTPUT \
-            --max-output-length $WORKLOAD_MAX_OUTPUT \
-            --arrival-rate $WORKLOAD_ARRIVAL_RATE \
-            --warm-up 20 \
-            --duration $SIMULATION_DURATION \
+            --arrival-rate $ARRIVAL_RATE \
+            --duration $DURATION \
+            --warm-up $WARM_UP \
             --seed $RANDOM_SEED \
             --output $result_file \
-            2>&1)
+            2>&1 | grep -E "(Simulation completed|Throughput|TTFT|E2E|Cost)" || echo "  ✗ Failed"
 
-        exit_code=$?
-        echo "$output" | tee -a $LOG_FILE
+        if [ -f $result_file ]; then
+            # Extract metrics using jq (if available) or python
+            if command -v jq &> /dev/null; then
+                throughput=$(jq -r '.throughput.tokens_per_sec // 0' $result_file)
+                ttft=$(jq -r '.first_token_latency.mean // 0' $result_file)
+                e2e=$(jq -r '.end_to_end_latency.mean // 0' $result_file)
+            else
+                # Fallback: use python
+                metrics=$(python3 -c "
+import json, sys
+with open('$result_file') as f:
+    d = json.load(f)
+    print(f\"{d.get('throughput',{}).get('tokens_per_sec',0):.1f}\")
+    print(f\"{d.get('first_token_latency',{}).get('mean',0):.4f}\")
+    print(f\"{d.get('end_to_end_latency',{}).get('mean',0):.4f}\")
+" 2>/dev/null)
+                read throughput ttft e2e <<< "$metrics"
+            fi
 
-        if [ $exit_code -eq 0 ] && [ -f $result_file ]; then
-            echo "✓ Completed successfully" | tee -a $LOG_FILE
-
-            # Extract metrics using helper script
-            metrics=$(python3 scripts/extract_metrics.py "$result_file")
-            echo "  $metrics" | tee -a $LOG_FILE
-        else
-            echo "✗ Failed" | tee -a $LOG_FILE
-            echo "$output" > $error_log_file
-
-            # Parse error using helper script
-            error_summary=$(python3 scripts/parse_error.py "$output")
-
-            # Create error JSON using helper script
-            python3 scripts/create_error_json.py "$result_file" "$error_summary" "$error_log_file" "$xpu" "$n_xpus" "$tp"
-
-            echo "  Error: $error_summary" | tee -a $LOG_FILE
+            # Store result
+            RESULTS+=("$xpu|TP=$tp|$throughput|$ttft|$e2e")
+            echo "  ✓ Throughput: ${throughput} tok/s | TTFT: ${ttft}s | E2E: ${e2e}s"
         fi
 
-        echo "" | tee -a $LOG_FILE
+        echo ""
     done
 done
 
-echo "=======================================================================" | tee -a $LOG_FILE
-echo "Benchmark Complete!" | tee -a $LOG_FILE
-echo "=======================================================================" | tee -a $LOG_FILE
-echo "End Time: $(date)" | tee -a $LOG_FILE
-echo "" | tee -a $LOG_FILE
+echo "=======================================================================" | tee -a $SUMMARY_FILE
+echo "BENCHMARK SUMMARY" | tee -a $SUMMARY_FILE
+echo "=======================================================================" | tee -a $SUMMARY_FILE
+printf "%-15s %-8s %12s %10s %10s\n" "xPU" "Config" "Throughput" "TTFT" "E2E" | tee -a $SUMMARY_FILE
+echo "-----------------------------------------------------------------------" | tee -a $SUMMARY_FILE
 
-# Generate comprehensive summary
-export MODEL XPUS WORKLOAD_ARRIVAL_RATE SIMULATION_DURATION RESULTS_DIR
-python3 scripts/analyze_benchmark_results.py "$RESULTS_DIR" | tee -a $LOG_FILE
+for result in "${RESULTS[@]}"; do
+    IFS='|' read -r xpu config throughput ttft e2e <<< "$result"
+    printf "%-15s %-8s %12s %10s %10s\n" "$xpu" "$config" "${throughput} tok/s" "${ttft}s" "${e2e}s" | tee -a $SUMMARY_FILE
+done
 
-echo "" | tee -a $LOG_FILE
-echo "Results saved to: $RESULTS_DIR" | tee -a $LOG_FILE
-echo "=======================================================================" | tee -a $LOG_FILE
+echo "=======================================================================" | tee -a $SUMMARY_FILE
+echo ""
+echo "Results saved to: $RESULTS_DIR"
+echo "Summary: $SUMMARY_FILE"
