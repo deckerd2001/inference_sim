@@ -85,10 +85,6 @@ class Request:
         if self.transfer_start_time and self.transfer_end_time:
             return self.transfer_end_time - self.transfer_start_time
         return None
-        """Time spent in prefill phase."""
-        if self.prefill_start_time and self.prefill_end_time:
-            return self.prefill_end_time - self.prefill_start_time
-        return None
 
     def __repr__(self):
         return (f"Request(id={self.request_id}, status={self.status.value}, "

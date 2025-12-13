@@ -1,0 +1,30 @@
+{
+  "total_requests": 2149,
+  "completed_requests": 1260,
+  "rejected_requests": 0,
+  "simulation_time": 200.0,
+  "throughput": {
+    "requests_per_sec": 6.3,
+    "tokens_per_sec": 817.51
+  },
+  "xpu_utilization": 0.39649942980709313,
+  "memory": {
+    "peak_memory_gb": 79.99182105064392,
+    "p95_memory_gb": 79.98871207237244,
+    "p50_memory_gb": 79.4152581691742
+  },
+  "first_token_latency": {
+    "mean": 94.62105715271144,
+    "p50": 94.02148420163932,
+    "p90": 155.20557758646146,
+    "p95": 163.02546266778134,
+    "p99": 168.3015737581239
+  },
+  "end_to_end_latency": {
+    "mean": 99.26258443915881,
+    "p50": 99.01689882030206,
+    "p90": 159.93907834177733,
+    "p95": 166.65552245080934,
+    "p99": 172.85368321364766
+  }
+}

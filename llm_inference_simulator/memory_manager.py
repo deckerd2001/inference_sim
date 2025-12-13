@@ -202,11 +202,13 @@ class MemoryManager:
                 len(requests), max_input_length
             )
         else:
-            # Decode: Generate 1 token but attend to entire KV cache
-            # Memory scales with longest accumulated context
-            max_kv_length = max(req.current_kv_cache_length for req in requests)
+            # Decode: Generate 1 token per request
+            # Activation memory is for processing 1 new token only
+            # (KV cache is calculated separately and doesn't contribute to activation)
+            # Note: Attention scores (Q×K^T) do scale with sequence length,
+            # but this is typically much smaller than layer activations
             activation_memory = self.calculate_activation_memory(
-                len(requests), max_kv_length
+                len(requests), seq_length=1  # Only 1 token being processed
             )
 
         # Total dynamic memory needed
