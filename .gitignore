@@ -6,3 +6,4 @@ bin/
 pyvenv.cfg
 llm_inference_simulator/__pycache__/
 results/*
+test_results/*
