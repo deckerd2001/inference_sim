@@ -117,21 +117,23 @@ class Scheduler:
             while len(self.prefill_queue) > 0:
                 req = self.prefill_queue[0]  # Peek
 
-                # Try adding this request
-                test_batch = batch_requests + [req]
-                can_fit, reason = memory_checker(test_batch, is_prefill=True)
+                # FIX: Append first, then check (avoids O(N) list copy)
+                batch_requests.append(req)
+                can_fit, reason = memory_checker(batch_requests, is_prefill=True)
 
                 if can_fit:
-                    # Add to batch
-                    batch_requests.append(self.prefill_queue.popleft())
+                    # Fits! Remove from queue
+                    self.prefill_queue.popleft()
 
                     # Optional: respect max_batch_size if set
                     if (self.spec.max_batch_size is not None and
                         len(batch_requests) >= self.spec.max_batch_size):
                         break
                 else:
-                    # Memory full, stop here
+                    # Doesn't fit, remove from batch and stop
+                    batch_requests.pop()
                     break
+
 
             # If we couldn't fit even one request, return None
             if not batch_requests:
@@ -176,20 +178,21 @@ class Scheduler:
             while len(self.decode_queue) > 0:
                 req = self.decode_queue[0]  # Peek
 
-                # Try adding this request
-                test_batch = batch_requests + [req]
-                can_fit, reason = memory_checker(test_batch, is_prefill=False)
+                # FIX: Append first, then check (avoids O(N) list copy)
+                batch_requests.append(req)
+                can_fit, reason = memory_checker(batch_requests, is_prefill=False)
 
                 if can_fit:
-                    # Add to batch
-                    batch_requests.append(self.decode_queue.popleft())
+                    # Fits! Remove from queue
+                    self.decode_queue.popleft()
 
                     # Optional: respect max_batch_size if set
                     if (self.spec.max_batch_size is not None and
                         len(batch_requests) >= self.spec.max_batch_size):
                         break
                 else:
-                    # Memory full, stop here
+                    # Doesn't fit, remove from batch and stop
+                    batch_requests.pop()
                     break
 
             if not batch_requests:

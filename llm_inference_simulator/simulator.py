@@ -706,6 +706,8 @@ class LLMInferenceSimulator:
             req.current_kv_cache_length += 1
             # Token counting moved to _handle_request_finished (measurement window)
 
+            if (self.measurement_start <= self.current_time <= self.measurement_end):
+                self.metrics.total_tokens_generated += 1  # <-- 이 부분 추가
             # Track first token time
             if req.tokens_generated == 1:
                 req.first_token_time = self.current_time
@@ -785,7 +787,6 @@ class LLMInferenceSimulator:
             if request.arrival_time >= self.measurement_start and \
                request.arrival_time <= self.measurement_end:
                 self.metrics.completed_requests += 1
-                self.metrics.total_tokens_generated += request.tokens_generated
 
                 if request.first_token_latency:
                     self.metrics.first_token_latencies.append(request.first_token_latency)

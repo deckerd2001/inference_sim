@@ -7,9 +7,9 @@
 ################################################################################
 
 MODEL="llama2-70b"
-ARRIVAL_RATE=30.0
+ARRIVAL_RATE=5.0
 DURATION=500.0
-WARM_UP=60.0
+WARM_UP=0.0
 
 # Workload settings (for display)
 AVG_INPUT=512
