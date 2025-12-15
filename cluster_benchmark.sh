@@ -9,7 +9,7 @@
 MODEL="llama2-70b"
 ARRIVAL_RATE=5.0
 DURATION=1000.0
-WARM_UP=60.0
+WARM_UP=100.0
 
 # Workload settings (for display)
 AVG_INPUT=512
@@ -125,6 +125,8 @@ for config in "${DISAGGREGATED_CONFIGS[@]}"; do
     config_name="disagg_${prefill_xpu}_${decode_xpu}_${bandwidth}"
     result_file="$RESULT_DIR/${config_name}.json"
     output_file="$RESULT_DIR/${config_name}.log"
+
+    RANDOM_SEED=$(date +%s)
 
     python3 -m llm_inference_simulator \
         --model $MODEL \
