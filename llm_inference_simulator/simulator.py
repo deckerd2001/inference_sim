@@ -11,10 +11,9 @@ from dataclasses import dataclass, field
 from .events import (
     Event, EventType,
     RequestArrivedEvent, RequestTokenizedEvent,
-    PrefillStartedEvent, PrefillFinishedEvent,
-    DecodeStepStartedEvent, DecodeStepFinishedEvent,
-    TokenEmittedEvent, RequestFinishedEvent,
-    BatchingWakeupEvent,
+    PrefillFinishedEvent,
+    DecodeStepFinishedEvent,
+    RequestFinishedEvent,
     KVTransferStartedEvent,
     KVTransferFinishedEvent,
 )
@@ -51,66 +50,6 @@ class SimulationMetrics:
     # Memory tracking
     peak_memory_usage_gb: float = 0.0
     memory_samples: List[float] = field(default_factory=list)
-
-    def compute_statistics(self) -> Dict:
-        """Compute summary statistics."""
-        stats = {
-            "total_requests": self.total_requests,
-            "completed_requests": self.completed_requests,
-            "rejected_requests": self.rejected_requests,
-            "total_tokens_generated": self.total_tokens_generated,
-            "simulation_time": self.total_simulation_time,
-        }
-
-        # Throughput
-        if self.total_simulation_time > 0:
-            stats["throughput_requests_per_sec"] = (
-                self.completed_requests / self.total_simulation_time
-            )
-            stats["throughput_tokens_per_sec"] = (
-                self.total_tokens_generated / self.total_simulation_time
-            )
-
-        # xPU utilization
-        total_time = self.gpu_busy_time + self.gpu_idle_time
-        if total_time > 0:
-            stats["gpu_utilization"] = self.gpu_busy_time / total_time
-
-        # Memory statistics (with percentiles)
-        if self.memory_samples:
-            stats["memory_peak_gb"] = self.peak_memory_usage_gb
-            stats["memory_p95_gb"] = np.percentile(self.memory_samples, 95)
-            stats["memory_p50_gb"] = np.percentile(self.memory_samples, 50)
-
-        # Latency statistics
-        if self.first_token_latencies:
-            stats["first_token_latency"] = {
-                "mean": np.mean(self.first_token_latencies),
-                "p50": np.percentile(self.first_token_latencies, 50),
-                "p90": np.percentile(self.first_token_latencies, 90),
-                "p95": np.percentile(self.first_token_latencies, 95),
-                "p99": np.percentile(self.first_token_latencies, 99),
-            }
-
-        if self.end_to_end_latencies:
-            stats["end_to_end_latency"] = {
-                "mean": np.mean(self.end_to_end_latencies),
-                "p50": np.percentile(self.end_to_end_latencies, 50),
-                "p90": np.percentile(self.end_to_end_latencies, 90),
-                "p95": np.percentile(self.end_to_end_latencies, 95),
-                "p99": np.percentile(self.end_to_end_latencies, 99),
-            }
-
-        if self.prefill_latencies:
-            stats["prefill_latency"] = {
-                "mean": np.mean(self.prefill_latencies),
-                "p50": np.percentile(self.prefill_latencies, 50),
-                "p90": np.percentile(self.prefill_latencies, 90),
-                "p95": np.percentile(self.prefill_latencies, 95),
-                "p99": np.percentile(self.prefill_latencies, 99),
-            }
-
-        return stats
 
 
 class LLMInferenceSimulator:
@@ -321,12 +260,8 @@ class LLMInferenceSimulator:
     def _schedule_initial_arrivals(self):
         """
         Schedule initial batch of request arrivals.
-
-        CRITICAL FIX: Requests only arrive during measurement window.
-        Simulation continues longer (cooldown period) to process all requests.
         """
         arrival_rate = self.config.workload_spec.arrival_rate
-        duration = self.config.simulation_duration_s
 
         if self.config.workload_spec.arrival_process == "poisson":
             # Generate Poisson arrival times
@@ -782,10 +717,8 @@ class LLMInferenceSimulator:
         request = self.completed_requests_map.get(event.request_id)
 
         if request:
-            # FIX: Count requests that ARRIVED in measurement window
-            # (not when they completed - this allows cooldown to process all requests)
-            if request.arrival_time >= self.measurement_start and \
-               request.arrival_time <= self.measurement_end:
+            if request.completion_time is not None and \
+               self.measurement_start <= request.completion_time <= self.measurement_end:
                 self.metrics.completed_requests += 1
 
                 if request.first_token_latency:

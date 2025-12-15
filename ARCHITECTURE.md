@@ -164,12 +164,12 @@ class Batch:
 while event_queue:
     event = heappop(event_queue)
     current_time = event.timestamp
-    
+
     process_event(event)
-    
+
     # 새로운 작업 스케줄링 시도
     try_schedule_work()
-    
+
     if should_stop():
         break
 ```
@@ -314,7 +314,6 @@ class MyScheduler(Scheduler):
 
 1. `SimulationMetrics`에 필드 추가
 2. 해당 이벤트 핸들러에서 수집
-3. `compute_statistics()`에서 계산
 
 ## 7. 테스트 및 검증
 

@@ -8,8 +8,8 @@
 
 MODEL="llama2-70b"
 ARRIVAL_RATE=5.0
-DURATION=500.0
-WARM_UP=0.0
+DURATION=1000.0
+WARM_UP=60.0
 
 # Workload settings (for display)
 AVG_INPUT=512
@@ -36,10 +36,10 @@ declare -A RESULTS
 # BENCHMARK
 #==============================================================================
 
-echo "======================================================================="
+echo "================================================================================================="
 echo "LLM Inference Simulator - Comprehensive Benchmark"
-echo "Model: $MODEL | Arrival Rate: $ARRIVAL_RATE req/s | Duration: ${DURATION}s"
-echo "======================================================================="
+echo "Model: $MODEL | Arrival Rate: $ARRIVAL_RATE req/s | Duration: ${DURATION}s | Warm-up: ${WARM_UP}s"
+echo "================================================================================================="
 echo ""
 echo "Testing Aggregated Configurations..."
 echo ""

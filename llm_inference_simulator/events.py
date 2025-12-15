@@ -61,16 +61,6 @@ class RequestTokenizedEvent(Event):
 
 
 @dataclass
-class PrefillStartedEvent(Event):
-    """Prefill phase has started."""
-    batch_id: int
-
-    def __init__(self, timestamp: float, batch_id: int):
-        super().__init__(timestamp, EventType.PREFILL_STARTED)
-        self.batch_id = batch_id
-
-
-@dataclass
 class PrefillFinishedEvent(Event):
     """Prefill phase has finished."""
     batch_id: int
@@ -78,18 +68,6 @@ class PrefillFinishedEvent(Event):
     def __init__(self, timestamp: float, batch_id: int):
         super().__init__(timestamp, EventType.PREFILL_FINISHED)
         self.batch_id = batch_id
-
-
-@dataclass
-class DecodeStepStartedEvent(Event):
-    """A decode step has started."""
-    batch_id: int
-    step: int
-
-    def __init__(self, timestamp: float, batch_id: int, step: int):
-        super().__init__(timestamp, EventType.DECODE_STEP_STARTED)
-        self.batch_id = batch_id
-        self.step = step
 
 
 @dataclass
@@ -105,21 +83,6 @@ class DecodeStepFinishedEvent(Event):
 
 
 @dataclass
-class TokenEmittedEvent(Event):
-    """A token has been generated."""
-    request_id: int
-    token_id: int
-    token_text: str
-
-    def __init__(self, timestamp: float, request_id: int,
-                 token_id: int, token_text: str):
-        super().__init__(timestamp, EventType.TOKEN_EMITTED)
-        self.request_id = request_id
-        self.token_id = token_id
-        self.token_text = token_text
-
-
-@dataclass
 class RequestFinishedEvent(Event):
     """A request has finished."""
     request_id: int
@@ -130,14 +93,6 @@ class RequestFinishedEvent(Event):
         super().__init__(timestamp, EventType.REQUEST_FINISHED)
         self.request_id = request_id
         self.total_output_tokens = total_output_tokens
-
-
-@dataclass
-class BatchingWakeupEvent(Event):
-    """Wakeup event to check if batching window has expired."""
-
-    def __init__(self, timestamp: float):
-        super().__init__(timestamp, EventType.BATCHING_WAKEUP)
 
 
 @dataclass
