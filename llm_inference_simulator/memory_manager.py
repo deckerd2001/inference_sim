@@ -116,9 +116,10 @@ class MemoryManager:
         bytes_per_element = self.model.activation_dtype.bytes_per_element()
         kv_bytes = kv_elements * bytes_per_element
 
-        # Adjust for tensor parallelism (KV cache is NOT sharded in standard TP)
-        # In some implementations, KV cache might be sharded, but typically it's replicated
-        # We'll assume no sharding for KV cache (conservative estimate)
+        tp = max(1, self.parallel.tensor_parallel_size)
+        # Megatron-style TP shards attention heads across TP ranks,
+        # so KV cache is sharded as well (per-GPU KV bytes / tp).
+        kv_bytes = kv_bytes / tp
 
         kv_gb = kv_bytes / (1024 ** 3)
 

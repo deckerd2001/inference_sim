@@ -251,7 +251,9 @@ class PerformanceModel:
 
         """
         B = batch_size
-        H = self.model.n_heads
+        tp = max(1, self.parallel.tensor_parallel_size)
+        # Megatron TP shards attention heads across TP ranks
+        H = self.model.n_heads / tp
         D = self.head_dim
         Q_len = query_length
         KV_len = kv_length
@@ -324,7 +326,9 @@ class PerformanceModel:
         Pure memory operation.
         """
         # 2 = K and V
-        kv_bytes = 2 * batch_size * kv_length * self.model.hidden_size * self.bytes_per_activation
+        tp = max(1, self.parallel.tensor_parallel_size)
+        hidden_per_tp = self.model.hidden_size / tp
+        kv_bytes = 2 * batch_size * kv_length * hidden_per_tp * self.bytes_per_activation
         return kv_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
 
     def _kv_cache_write_time(self, batch_size: int, seq_length: int) -> float:
@@ -334,7 +338,9 @@ class PerformanceModel:
         Write newly computed K and V to cache.
         Pure memory operation.
         """
-        kv_bytes = 2 * batch_size * seq_length * self.model.hidden_size * self.bytes_per_activation
+        tp = max(1, self.parallel.tensor_parallel_size)
+        hidden_per_tp = self.model.hidden_size / tp
+        kv_bytes = 2 * batch_size * seq_length * hidden_per_tp * self.bytes_per_activation
         return kv_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
 
     def _attention_comm_time(self, batch_size: int, seq_length: int) -> float:
@@ -408,8 +414,10 @@ class PerformanceModel:
         Returns:
             KV cache size in GB
         """
+        tp = max(1, self.parallel.tensor_parallel_size)
+        hidden_per_tp = self.model.hidden_size / tp  # Megatron TP shards heads => shard hidden
         kv_cache_elements = (2 * self.model.n_layers * batch_size *
-                            max_seq_length * self.model.hidden_size)
+                    max_seq_length * hidden_per_tp)
         kv_cache_bytes = kv_cache_elements * self.bytes_per_activation
         kv_cache_gb = kv_cache_bytes / (1024 ** 3)
 
