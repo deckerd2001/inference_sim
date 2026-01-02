@@ -1,11 +1,8 @@
 """
-Refactored simulator using abstract cluster layer - BUGFIX VERSION
+Refactored simulator using cluster polymorphism.
 
-Fixed issues:
-1. Finished requests properly collected
-2. Metrics collection works
-3. No duplicate "Starting simulation..."
-4. Event scheduling fixed
+This version completely removes branching logic from simulator
+and delegates all scheduling to cluster implementations.
 """
 
 import heapq
@@ -24,7 +21,8 @@ from .events import (
 )
 from .config import SimulatorConfig
 from .request import Request, Batch, RequestStatus
-from .inference_cluster import create_inference_cluster, InferenceCluster
+from .cluster import ClusterFactory
+from .disaggregated_cluster import DisaggregatedCluster
 
 
 @dataclass
@@ -51,7 +49,7 @@ class SimulationMetrics:
 
 
 class LLMInferenceSimulator:
-    """Event-driven simulator using abstract cluster layer - BUGFIX VERSION."""
+    """Event-driven simulator using cluster polymorphism."""
 
     def __init__(self, config: SimulatorConfig, tp_comm_strategy=None):
         self.config = config
@@ -77,11 +75,8 @@ class LLMInferenceSimulator:
 
         self.event_log = [] if config.output_event_log else None
 
-        # Create cluster
-        self.cluster = create_inference_cluster(config, tp_comm_strategy)
-
-        self.scheduler = self.cluster.get_scheduler()
-        self.is_disaggregated = config.is_disaggregated
+        # ✅ Create cluster using factory (polymorphism!)
+        self.cluster = ClusterFactory.create(config)
 
     def schedule_event(self, event: Event):
         """Add an event to the event queue."""
@@ -89,32 +84,20 @@ class LLMInferenceSimulator:
 
     def run(self):
         """Run the simulation."""
-        # BUGFIX: Only print once (removed duplicate)
         print(f"Starting simulation...")
 
-        if self.is_disaggregated:
+        if isinstance(self.cluster, DisaggregatedCluster):
             print(f"Configuration: {self.config.model_spec.name}, "
-                  f"Prefill: {self.config.disaggregation_spec.prefill_cluster.total_xpus} xPUs, "
-                  f"Decode: {self.config.disaggregation_spec.decode_cluster.total_xpus} xPUs, "
+                  f"Disaggregated mode, "
                   f"arrival_rate={self.config.workload_spec.arrival_rate} req/s")
         else:
             print(f"Configuration: {self.config.model_spec.name}, "
                   f"{self.config.cluster_spec.total_xpus} xPUs, "
                   f"arrival_rate={self.config.workload_spec.arrival_rate} req/s")
 
-        mem_stats = self.cluster.get_memory_stats()
-        if self.is_disaggregated:
-            print(f"Prefill Memory: {mem_stats['prefill']['model_weights_gb']:.2f}GB model, "
-                  f"{mem_stats['prefill']['available_for_kv_cache_gb']:.2f}GB available for KV cache")
-            print(f"Decode Memory: {mem_stats['decode']['model_weights_gb']:.2f}GB model, "
-                  f"{mem_stats['decode']['available_for_kv_cache_gb']:.2f}GB available for KV cache")
-        else:
-            print(f"Memory: {mem_stats['model_weights_gb']:.2f}GB model, "
-                  f"{mem_stats['available_for_kv_cache_gb']:.2f}GB available for KV cache")
-
         self._schedule_initial_arrivals()
 
-        # Main event loop
+        # Event loop
         while self.event_queue:
             event = heapq.heappop(self.event_queue)
             self.current_time = event.timestamp
@@ -122,30 +105,69 @@ class LLMInferenceSimulator:
             if self.event_log is not None:
                 self.event_log.append(event)
 
+            self._process_event(event)
+            self._track_memory_usage()
+
             if self._should_stop():
                 break
 
-            self._dispatch_event(event)
+        self.metrics.total_simulation_time = min(
+            self.current_time - self.measurement_start,
+            self.config.simulation_duration_s
+        ) if self.current_time > self.measurement_start else 0
 
-            self._try_schedule()
-
-        self.metrics.total_simulation_time = self.measurement_end - self.measurement_start
-
+        print(f"\nSimulation completed at t={self.current_time:.2f}s")
         self._print_summary()
 
-        # Return metrics for JSON serialization by __main__.py
         return self.metrics
 
-    def _dispatch_event(self, event: Event):
-        """Dispatch event to appropriate handler."""
+    def _track_memory_usage(self):
+        """Track current memory usage for metrics."""
+        # ✅ Get from cluster (polymorphism!)
+        usage = self.cluster.get_memory_usage()
+        self.metrics.memory_samples.append(usage.total_gb)
+        self.metrics.peak_memory_usage_gb = max(
+            self.metrics.peak_memory_usage_gb,
+            usage.total_gb
+        )
+
+    def _schedule_initial_arrivals(self):
+        """Schedule initial batch of request arrivals."""
+        arrival_rate = self.config.workload_spec.arrival_rate
+        num_arrivals = int(arrival_rate * self.total_duration * 1.2)
+
+        arrival_times = []
+        current_arrival = 0.0
+
+        for _ in range(num_arrivals):
+            inter_arrival = random.expovariate(arrival_rate)
+            current_arrival += inter_arrival
+
+            if current_arrival > self.total_duration:
+                break
+
+            arrival_times.append(current_arrival)
+
+        for arrival_time in arrival_times:
+            event = RequestArrivedEvent(
+                timestamp=arrival_time,
+                request_id=self.next_request_id,
+                input_text="",
+                requested_output_tokens=self._generate_output_tokens(),
+            )
+            self.schedule_event(event)
+            self.next_request_id += 1
+
+    def _process_event(self, event: Event):
+        """Process an event based on its type."""
         if event.event_type == EventType.REQUEST_ARRIVED:
             self._handle_request_arrived(event)
-        elif event.event_type == EventType.REQUEST_TOKENIZED:
-            self._handle_request_tokenized(event)
         elif event.event_type == EventType.PREFILL_FINISHED:
             self._handle_prefill_finished(event)
         elif event.event_type == EventType.DECODE_STEP_FINISHED:
             self._handle_decode_step_finished(event)
+        elif event.event_type == EventType.REQUEST_FINISHED:
+            self._handle_request_finished(event)
         elif event.event_type == EventType.KV_TRANSFER_FINISHED:
             self._handle_kv_transfer_finished(event)
 
@@ -168,157 +190,136 @@ class LLMInferenceSimulator:
         request.tokenization_time = self.current_time
         request.status = RequestStatus.TOKENIZED
 
+        # ✅ Add to cluster (polymorphism!)
         self.cluster.add_request(request)
 
-    def _handle_request_tokenized(self, event: RequestTokenizedEvent):
-        pass
+        # Try scheduling
+        self._try_schedule()
 
     def _handle_prefill_finished(self, event: PrefillFinishedEvent):
         """Handle prefill completion."""
-        new_events = self.cluster.handle_prefill_finished(event, self.current_time)
+        # ✅ Delegate to cluster (polymorphism!)
+        self.cluster.handle_prefill_finished(event.batch_id, self.current_time)
 
-        for new_event in new_events:
-            self.schedule_event(new_event)
+        # Special handling for disaggregated: schedule KV transfer
+        if isinstance(self.cluster, DisaggregatedCluster):
+            transfer_time = self.cluster.calculate_transfer_time(event.batch_id)
 
-        # Collect prefill metrics (batch still exists at this point)
+            # Get batch to extract request IDs
+            batch = self.cluster.prefill_scheduler.batch_manager.get_batch(event.batch_id)
+            if batch:
+                transfer_event = KVTransferFinishedEvent(
+                    timestamp=self.current_time + transfer_time,
+                    batch_id=event.batch_id,
+                    request_ids=[r.request_id for r in batch.requests]
+                )
+                self.schedule_event(transfer_event)
+
+        # Collect prefill metrics
         if self._is_in_measurement_window():
-            batch = self.scheduler.batch_manager.get_batch(event.batch_id)
+            # Get scheduler based on cluster type
+            if isinstance(self.cluster, DisaggregatedCluster):
+                scheduler = self.cluster.prefill_scheduler
+            else:
+                scheduler = self.cluster.scheduler
+
+            batch = scheduler.batch_manager.get_batch(event.batch_id)
             if batch:
                 for req in batch.requests:
                     if req.prefill_latency:
                         self.metrics.prefill_latencies.append(req.prefill_latency)
 
+        # Try scheduling next work
+        self._try_schedule()
+
     def _handle_decode_step_finished(self, event: DecodeStepFinishedEvent):
-        """
-        Handle decode step completion - BUGFIX VERSION.
+        """Handle decode step completion."""
+        # ✅ Delegate to cluster (polymorphism!)
+        continue_result = self.cluster.handle_decode_step_finished(
+            event.batch_id,
+            self.current_time
+        )
 
-        Now properly collects finished requests for metrics.
-        """
-        # BUGFIX: Get result with finished_requests
-        result = self.cluster.handle_decode_finished(event, self.current_time)
-
-        # Schedule continuation events
-        for new_event in result.events:
-            self.schedule_event(new_event)
-
-        # BUGFIX: Collect metrics from finished_requests
+        # Collect finished request metrics BEFORE batch is cleaned up
         if self._is_in_measurement_window():
-            # Count tokens generated this step
-            total_requests = len(result.finished_requests) + len(result.continuing_requests)
-            self.metrics.total_tokens_generated += total_requests
+            # Get scheduler based on cluster type
+            if isinstance(self.cluster, DisaggregatedCluster):
+                scheduler = self.cluster.decode_scheduler
+            else:
+                scheduler = self.cluster.scheduler
 
-            # Collect finished request metrics
-            for req in result.finished_requests:
-                self._record_completed_request(req)
+            batch = scheduler.batch_manager.get_batch(event.batch_id)
+            if batch:
+                # Count all requests that were in batch (for token count)
+                self.metrics.total_tokens_generated += len(batch.requests)
+
+                for req in self.cluster.last_finished_requests:
+                    self._record_completed_request(req)
+
+        # If batch continues, schedule next iteration
+        if continue_result:
+            self.schedule_event(continue_result.event)
+
+            if self._is_in_measurement_window():
+                self.metrics.gpu_busy_time += continue_result.busy_time
+
+        # Try scheduling next work (if batch finished)
+        if not continue_result:
+            self._try_schedule()
 
     def _handle_kv_transfer_finished(self, event: KVTransferFinishedEvent):
         """Handle KV cache transfer completion (disaggregated only)."""
-        if hasattr(self.cluster, 'handle_kv_transfer_finished'):
-            self.cluster.handle_kv_transfer_finished(event, self.current_time)
+        if isinstance(self.cluster, DisaggregatedCluster):
+            self.cluster.handle_kv_transfer_finished(event.batch_id, self.current_time)
+
+            # Try scheduling decode after transfer
+            self._try_schedule()
+
+    def _handle_request_finished(self, event: RequestFinishedEvent):
+        """Handle request completion (legacy - not used in current design)."""
+        pass
 
     # ========== SCHEDULING ==========
 
     def _try_schedule(self):
-        """Try to schedule next batch."""
-        if self.is_disaggregated:
-            # Disaggregated: Try both prefill and decode independently
-            prefill_result = self.cluster.try_schedule_prefill(self.current_time)
-            if prefill_result:
-                busy_time, event = prefill_result
-                self.schedule_event(event)
-                if self._is_in_measurement_window():
-                    self.metrics.gpu_busy_time += busy_time
+        """
+        Try to schedule next batch.
 
-            decode_result = self.cluster.try_schedule_decode(self.current_time)
-            if decode_result:
-                busy_time, event = decode_result
-                self.schedule_event(event)
-                if self._is_in_measurement_window():
-                    self.metrics.gpu_busy_time += busy_time
-        else:
-            # Aggregated: Try prefill first, then decode (mutually exclusive)
-            result = self.cluster.try_schedule_prefill(self.current_time)
-            if result:
-                busy_time, event = result
-                self.schedule_event(event)
-                if self._is_in_measurement_window():
-                    self.metrics.gpu_busy_time += busy_time
-                return
+        ✅ No branching! Cluster handles scheduling policy via polymorphism!
+        """
+        results = self.cluster.try_schedule(self.current_time)
 
-            # If cluster is free, try decode
-            if not self.cluster.is_busy():
-                result = self.cluster.try_schedule_decode(self.current_time)
-                if result:
-                    busy_time, event = result
-                    self.schedule_event(event)
-                    if self._is_in_measurement_window():
-                        self.metrics.gpu_busy_time += busy_time
+        # Schedule all events returned
+        for schedule_result in results:
+            self.schedule_event(schedule_result.event)
 
-    # ========== WORKLOAD GENERATION ==========
+            # Track GPU busy time if in measurement window
+            if self._is_in_measurement_window():
+                self.metrics.gpu_busy_time += schedule_result.busy_time
 
-    def _schedule_initial_arrivals(self):
-        """Schedule initial request arrivals."""
-        workload = self.config.workload_spec
-
-        current_time = 0.0
-        request_count = 0
-
-        while current_time < self.total_duration:
-            inter_arrival_time = random.expovariate(workload.arrival_rate)
-            current_time += inter_arrival_time
-
-            if current_time > self.total_duration:
-                break
-
-            output_length = max(
-                1,
-                int(random.gauss(
-                    workload.avg_output_length,
-                    workload.output_length_std
-                ))
-            )
-            output_length = min(output_length, workload.max_output_length)
-
-            event = RequestArrivedEvent(
-                timestamp=current_time,
-                request_id=self.next_request_id,
-                input_text=f"request_{self.next_request_id}",
-                requested_output_tokens=output_length
-            )
-
-            self.schedule_event(event)
-            self.next_request_id += 1
-            request_count += 1
-
-            if (self.config.max_requests is not None and
-                request_count >= self.config.max_requests):
-                break
+    # ========== UTILITIES ==========
 
     def _generate_input_length(self) -> int:
-        """Generate input length from configured distribution."""
-        workload = self.config.workload_spec
+        """Generate input length based on workload spec."""
+        spec = self.config.workload_spec
+        if spec.max_input_length == spec.avg_input_length:
+            return spec.avg_input_length
+        else:
+            return random.randint(
+                max(1, spec.avg_input_length - 100),
+                spec.max_input_length
+            )
 
-        length = max(
-            1,
-            int(random.gauss(
-                workload.avg_input_length,
-                workload.input_length_std
-            ))
-        )
-        return min(length, workload.max_input_length)
-
-    # ========== METRICS ==========
-
-    def _record_completed_request(self, request: Request):
-        """Record metrics for a completed request."""
-        self.completed_requests_map[request.request_id] = request
-        self.metrics.completed_requests += 1
-
-        if request.first_token_latency:
-            self.metrics.first_token_latencies.append(request.first_token_latency)
-
-        if request.end_to_end_latency:
-            self.metrics.end_to_end_latencies.append(request.end_to_end_latency)
+    def _generate_output_tokens(self) -> int:
+        """Generate requested output tokens."""
+        spec = self.config.workload_spec
+        if spec.max_output_length == spec.avg_output_length:
+            return spec.avg_output_length
+        else:
+            return random.randint(
+                max(1, spec.avg_output_length - 50),
+                spec.max_output_length
+            )
 
     def _is_in_measurement_window(self) -> bool:
         """Check if current time is in measurement window."""
@@ -329,105 +330,48 @@ class LLMInferenceSimulator:
         if self.current_time >= self.total_duration:
             return True
 
-        if (self.config.max_requests is not None and
-            self.metrics.completed_requests >= self.config.max_requests):
-            return True
+        if self.current_time >= self.measurement_end:
+            # Check if all requests completed
+            if not self.cluster.is_busy():
+                if isinstance(self.cluster, DisaggregatedCluster):
+                    prefill_empty = len(self.cluster.prefill_scheduler.prefill_queue) == 0
+                    decode_empty = len(self.cluster.decode_scheduler.decode_queue) == 0
+                else:
+                    prefill_empty = len(self.cluster.scheduler.prefill_queue) == 0
+                    decode_empty = len(self.cluster.scheduler.decode_queue) == 0
+
+                if prefill_empty and decode_empty:
+                    return True
 
         return False
 
-    # ========== SUMMARY ==========
+    def _record_completed_request(self, request: Request):
+        """Record metrics for a completed request."""
+        if request.request_id in self.completed_requests_map:
+            return
+
+        self.completed_requests_map[request.request_id] = request
+        self.metrics.completed_requests += 1
+
+        if request.first_token_latency:
+            self.metrics.first_token_latencies.append(request.first_token_latency)
+
+        if request.end_to_end_latency:
+            self.metrics.end_to_end_latencies.append(request.end_to_end_latency)
 
     def _print_summary(self):
         """Print simulation summary."""
-        import numpy as np
-
-        arrival_rate = self.config.workload_spec.arrival_rate
-        avg_output = (self.config.workload_spec.avg_output_length +
-                     self.config.workload_spec.max_output_length) / 2
-        required_throughput = arrival_rate * avg_output
-        actual_throughput = (self.metrics.total_tokens_generated /
-                            self.metrics.total_simulation_time if self.metrics.total_simulation_time > 0 else 0)
-        utilization = required_throughput / actual_throughput if actual_throughput > 0 else float('inf')
-        is_overloaded = utilization >= 1.0
-
-        print()
-        print("=" * 60)
-        print("SIMULATION SUMMARY")
-        print("=" * 60)
-        print()
-
-        print("Load Analysis:")
-        print(f"  Arrival Rate:         {arrival_rate:.1f} req/s")
-        print(f"  Avg Output Length:    {avg_output:.0f} tok/req")
-        print(f"  Required Throughput:  {required_throughput:.0f} tok/s")
-        print(f"  Actual Throughput:    {actual_throughput:.1f} tok/s")
-        print(f"  Utilization:          {utilization*100:.0f}%", end="")
-
-        if is_overloaded:
-            print(" ⚠️  OVERLOAD")
-        elif utilization >= 0.8:
-            print(" ⚠️  HIGH LOAD")
-        else:
-            print(" ✅ NORMAL")
-        print()
-
-        print("Requests:")
-        print(f"  Total: {self.metrics.total_requests}")
-        print(f"  Completed: {self.metrics.completed_requests}")
-        if self.metrics.rejected_requests > 0:
-            print(f"  Rejected: {self.metrics.rejected_requests}")
-        print()
-
-        if self.metrics.total_simulation_time > 0:
-            req_per_sec = self.metrics.completed_requests / self.metrics.total_simulation_time
-            tok_per_sec = self.metrics.total_tokens_generated / self.metrics.total_simulation_time
-            print("Throughput:")
-            print(f"  Requests/sec: {req_per_sec:.2f}")
-            print(f"  Tokens/sec: {tok_per_sec:.2f}")
-            print()
-
-        measurement_duration = self.measurement_end - self.measurement_start
-        self.metrics.gpu_idle_time = measurement_duration - self.metrics.gpu_busy_time
-        total_time = self.metrics.gpu_busy_time + self.metrics.gpu_idle_time
-        xpu_util = self.metrics.gpu_busy_time / total_time if total_time > 0 else 0.0
-        print(f"xPU Utilization: {xpu_util:.1%}")
-        print()
-
-        mem_stats = self.cluster.get_memory_stats()
-        if self.is_disaggregated:
-            print("Memory Usage (Decode Cluster):")
-            total_mem = (self.config.disaggregation_spec.decode_cluster.total_xpus *
-                        self.config.disaggregation_spec.decode_cluster.xpu_spec.memory_size_gb)
-            current_used = mem_stats['decode']['current_used_gb']
-            print(f"  Current: {current_used:.2f}GB / {total_mem:.0f}GB "
-                  f"({current_used/total_mem*100:.1f}%)")
-        else:
-            print("Memory Usage:")
-            total_mem = (self.config.cluster_spec.total_xpus *
-                        self.config.cluster_spec.xpu_spec.memory_size_gb)
-            current_used = mem_stats['current_used_gb']
-            print(f"  Current: {current_used:.2f}GB / {total_mem:.0f}GB "
-                  f"({current_used/total_mem*100:.1f}%)")
-        print()
+        print(f"\nCompleted requests: {self.metrics.completed_requests} / {self.metrics.total_requests}")
 
         if self.metrics.first_token_latencies:
-            ftl = np.array(self.metrics.first_token_latencies)
-            print("First Token Latency (seconds):")
-            print(f"  Mean: {np.mean(ftl):.4f}")
-            print(f"  P50:  {np.percentile(ftl, 50):.4f}")
-            print(f"  P90:  {np.percentile(ftl, 90):.4f}")
-            print(f"  P95:  {np.percentile(ftl, 95):.4f}")
-            print(f"  P99:  {np.percentile(ftl, 99):.4f}")
-            print()
+            print(f"Avg TTFT: {np.mean(self.metrics.first_token_latencies):.2f}s")
 
         if self.metrics.end_to_end_latencies:
-            e2e = np.array(self.metrics.end_to_end_latencies)
-            print("End-to-End Latency (seconds):")
-            print(f"  Mean: {np.mean(e2e):.4f}")
-            print(f"  P50:  {np.percentile(e2e, 50):.4f}")
-            print(f"  P90:  {np.percentile(e2e, 90):.4f}")
-            print(f"  P95:  {np.percentile(e2e, 95):.4f}")
-            print(f"  P99:  {np.percentile(e2e, 99):.4f}")
-            print()
+            print(f"Avg E2E: {np.mean(self.metrics.end_to_end_latencies):.2f}s")
 
-        print("=" * 60)
+        print(f"Tokens generated: {self.metrics.total_tokens_generated}")
+        print(f"Peak memory: {self.metrics.peak_memory_usage_gb:.2f} GB")
+
+        if self.metrics.total_simulation_time > 0:
+            xpu_utilization = self.metrics.gpu_busy_time / self.metrics.total_simulation_time
+            print(f"xPU Utilization: {xpu_utilization * 100:.1f}%")
