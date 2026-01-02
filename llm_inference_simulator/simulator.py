@@ -75,7 +75,7 @@ class LLMInferenceSimulator:
 
         self.event_log = [] if config.output_event_log else None
 
-        # ✅ Create cluster using factory (polymorphism!)
+        # Create cluster using factory (polymorphism!)
         self.cluster = ClusterFactory.create(config)
 
     def schedule_event(self, event: Event):
@@ -123,7 +123,7 @@ class LLMInferenceSimulator:
 
     def _track_memory_usage(self):
         """Track current memory usage for metrics."""
-        # ✅ Get from cluster (polymorphism!)
+        # Get from cluster (polymorphism!)
         usage = self.cluster.get_memory_usage()
         self.metrics.memory_samples.append(usage.total_gb)
         self.metrics.peak_memory_usage_gb = max(
@@ -190,7 +190,7 @@ class LLMInferenceSimulator:
         request.tokenization_time = self.current_time
         request.status = RequestStatus.TOKENIZED
 
-        # ✅ Add to cluster (polymorphism!)
+        # Add to cluster (polymorphism!)
         self.cluster.add_request(request)
 
         # Try scheduling
@@ -198,7 +198,7 @@ class LLMInferenceSimulator:
 
     def _handle_prefill_finished(self, event: PrefillFinishedEvent):
         """Handle prefill completion."""
-        # ✅ Delegate to cluster (polymorphism!)
+        # Delegate to cluster (polymorphism!)
         self.cluster.handle_prefill_finished(event.batch_id, self.current_time)
 
         # Special handling for disaggregated: schedule KV transfer
@@ -234,7 +234,7 @@ class LLMInferenceSimulator:
 
     def _handle_decode_step_finished(self, event: DecodeStepFinishedEvent):
         """Handle decode step completion."""
-        # ✅ Delegate to cluster (polymorphism!)
+        # Delegate to cluster (polymorphism!)
         continue_result = self.cluster.handle_decode_step_finished(
             event.batch_id,
             self.current_time
@@ -285,7 +285,7 @@ class LLMInferenceSimulator:
         """
         Try to schedule next batch.
 
-        ✅ No branching! Cluster handles scheduling policy via polymorphism!
+        No branching! Cluster handles scheduling policy via polymorphism!
         """
         results = self.cluster.try_schedule(self.current_time)
 
