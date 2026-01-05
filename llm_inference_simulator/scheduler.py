@@ -135,10 +135,6 @@ class Scheduler:
                     break
 
 
-            # If we couldn't fit even one request, return None
-            if not batch_requests:
-                return None
-
         if not batch_requests:
             return None
 
