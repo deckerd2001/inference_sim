@@ -195,9 +195,6 @@ class Scheduler:
                     batch_requests.pop()
                     break
 
-            if not batch_requests:
-                return None
-
         if not batch_requests:
             return None
 
