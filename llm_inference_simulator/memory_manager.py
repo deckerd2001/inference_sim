@@ -1,5 +1,7 @@
 """
 Memory management for GPU memory tracking and scheduling decisions.
+
+UPDATED: Now tracks "resident" requests whose KV cache is in GPU memory.
 """
 
 from dataclasses import dataclass
@@ -37,6 +39,9 @@ class MemoryManager:
     - Track KV cache memory per request
     - Check if new batches fit in memory
     - Prevent OOM by rejecting requests
+
+    IMPORTANT: Now tracks "resident" requests - those whose KV cache
+    is currently in GPU memory (after prefill, during decode).
     """
 
     def __init__(self, model_spec: ModelSpec, xpu_spec: xPUSpec,
@@ -61,6 +66,10 @@ class MemoryManager:
             self.model_memory_gb -
             self.memory_safety_margin_gb
         )
+
+        # NEW: Track requests whose KV cache is resident in GPU memory
+        # These are requests that have completed prefill but not yet finished decode
+        self.resident_requests = []  # List[Request]
 
         if self.available_memory_gb < 0:
             raise ValueError(
@@ -91,6 +100,85 @@ class MemoryManager:
         weight_memory_gb = weight_memory_bytes / (1024 ** 3)
 
         return weight_memory_gb
+
+    # ========================================================================
+    # NEW: Resident KV Tracking Methods
+    # ========================================================================
+
+    def add_resident_requests(self, requests: List[Request]):
+        """
+        Add requests to resident set (call after prefill completes).
+
+        These requests now have KV cache in GPU memory that must persist
+        until decode completes.
+
+        Args:
+            requests: Requests whose KV cache is now in GPU memory
+        """
+        for req in requests:
+            if req not in self.resident_requests:
+                self.resident_requests.append(req)
+
+    def remove_resident_requests(self, requests: List[Request]):
+        """
+        Remove requests from resident set (call after decode completes).
+
+        These requests no longer need KV cache in GPU memory.
+
+        Args:
+            requests: Requests whose KV cache is no longer needed
+        """
+        for req in requests:
+            if req in self.resident_requests:
+                self.resident_requests.remove(req)
+
+    def get_resident_kv_memory(self) -> float:
+        """
+        Calculate total KV cache memory for all resident requests.
+
+        Uses actual current_kv_cache_length (grows during decode),
+        not worst-case max_length.
+
+        Returns:
+            Total KV cache memory in GB
+        """
+        total_kv_gb = 0.0
+
+        for req in self.resident_requests:
+            # Use actual current KV length (grows during decode)
+            kv_length = req.current_kv_cache_length
+
+            if kv_length == 0:
+                # Not yet initialized, use input_length
+                kv_length = req.input_length if req.input_length else 0
+
+            if kv_length == 0:
+                continue  # Skip if still no length
+
+            # Calculate KV memory for this length
+            # KV cache: 2 (K+V) × n_layers × hidden_size × seq_len × bytes_per_elem
+            kv_elements = (
+                2 *  # K and V
+                self.model.n_layers *
+                kv_length *
+                self.model.hidden_size
+            )
+
+            bytes_per_elem = self.model.activation_dtype.bytes_per_element()
+            kv_bytes = kv_elements * bytes_per_elem
+
+            # Shard by tensor parallelism
+            tp_size = max(1, self.parallel.tensor_parallel_size)
+            kv_bytes = kv_bytes / tp_size
+
+            kv_gb = kv_bytes / (1024 ** 3)
+            total_kv_gb += kv_gb
+
+        return total_kv_gb
+
+    # ========================================================================
+    # MODIFIED: KV Cache Calculation Methods
+    # ========================================================================
 
     def calculate_kv_cache_memory(self, request: Request) -> float:
         """
@@ -176,9 +264,15 @@ class MemoryManager:
 
         return activation_gb
 
+    # ========================================================================
+    # MODIFIED: Scheduling Check (considers resident KV)
+    # ========================================================================
+
     def can_schedule_batch(self, requests: List[Request], is_prefill: bool) -> tuple[bool, str]:
         """
         Check if a batch can be scheduled without OOM.
+
+        IMPORTANT: Now considers resident KV cache from previous batches!
 
         Args:
             requests: List of requests to schedule
@@ -190,36 +284,36 @@ class MemoryManager:
         if not requests:
             return True, "Empty batch"
 
-        # Calculate KV cache memory needed
-        kv_memory_needed = self.calculate_batch_kv_cache_memory(requests)
+        # CRITICAL: Calculate resident KV from previous batches
+        resident_kv_gb = self.get_resident_kv_memory()
+
+        # Calculate KV cache memory needed for NEW batch (worst-case)
+        new_kv_memory = self.calculate_batch_kv_cache_memory(requests)
 
         # Calculate activation memory needed
-        # See docs/memory_calculation.md for detailed explanation
         if is_prefill:
             # Prefill: Process all input tokens at once
-            # Memory scales with longest sequence (due to padding)
             max_input_length = max(req.input_length for req in requests)
             activation_memory = self.calculate_activation_memory(
                 len(requests), max_input_length
             )
         else:
             # Decode: Generate 1 token per request
-            # Activation memory is for processing 1 new token only
-            # (KV cache is calculated separately and doesn't contribute to activation)
-            # Note: Attention scores (Q×K^T) do scale with sequence length,
-            # but this is typically much smaller than layer activations
             activation_memory = self.calculate_activation_memory(
-                len(requests), seq_length=1  # Only 1 token being processed
+                len(requests), seq_length=1
             )
 
-        # Total dynamic memory needed
-        total_dynamic_memory = kv_memory_needed + activation_memory
+        # Total dynamic memory needed = resident + new batch + activations
+        total_kv_needed = resident_kv_gb + new_kv_memory
+        total_dynamic_memory = total_kv_needed + activation_memory
 
         # Check if it fits
         if total_dynamic_memory > self.available_memory_gb:
             reason = (
                 f"OOM: Need {total_dynamic_memory:.2f}GB "
-                f"(KV={kv_memory_needed:.2f}GB + Act={activation_memory:.2f}GB), "
+                f"(Resident KV={resident_kv_gb:.2f}GB + "
+                f"New KV={new_kv_memory:.2f}GB + "
+                f"Act={activation_memory:.2f}GB), "
                 f"but only {self.available_memory_gb:.2f}GB available"
             )
             return False, reason
@@ -269,6 +363,9 @@ class MemoryManager:
         """
         Update current memory usage tracking.
 
+        NOTE: This is for monitoring only. Actual memory management
+        uses resident_requests tracking.
+
         Args:
             requests: Currently active requests
             is_prefill: Whether in prefill phase
@@ -281,7 +378,7 @@ class MemoryManager:
                 len(requests), max_input_length
             )
         elif requests:
-            max_kv_length = max(req.current_kv_cache_length for req in requests)
+            max_kv_length = max(req.current_kv_cache_length for req in requests if req.current_kv_cache_length > 0)
             self.current_activation_gb = self.calculate_activation_memory(
                 len(requests), max_kv_length
             )
@@ -290,9 +387,12 @@ class MemoryManager:
 
     def get_memory_usage(self) -> MemoryUsage:
         """Get current memory usage breakdown."""
+        # Use resident KV for accurate tracking
+        resident_kv_gb = self.get_resident_kv_memory()
+
         return MemoryUsage(
             model_weights_gb=self.model_memory_gb,
-            kv_cache_gb=self.current_kv_cache_gb,
+            kv_cache_gb=resident_kv_gb,  # Use resident, not current batch
             activations_gb=self.current_activation_gb,
         )
 
@@ -305,7 +405,8 @@ class MemoryManager:
             "model_weights_gb": self.model_memory_gb,
             "safety_margin_gb": self.memory_safety_margin_gb,
             "available_for_kv_cache_gb": self.available_memory_gb,
-            "current_kv_cache_gb": self.current_kv_cache_gb,
+            "current_kv_cache_gb": usage.kv_cache_gb,  # Resident KV
+            "resident_requests_count": len(self.resident_requests),
             "current_activation_gb": self.current_activation_gb,
             "current_used_gb": usage.total_gb,
             "current_free_gb": self.xpu.memory_size_gb - usage.total_gb,

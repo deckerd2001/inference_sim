@@ -191,9 +191,14 @@ class DisaggregatedCluster(BaseCluster):
         # Note: KV transfer event should be created by simulator
         # We just free the prefill cluster here
 
+        # CRITICAL: Add to prefill resident
+        # KV cache is still in prefill memory during transfer
+        self.prefill_memory.add_resident_requests(batch.requests)
+
         # Free prefill cluster
         self.prefill_gpu_busy = False
         self.prefill_batch = None
+
 
     def handle_kv_transfer_finished(self, batch_id: int, current_time: float):
         """Handle KV cache transfer completion."""
@@ -208,6 +213,12 @@ class DisaggregatedCluster(BaseCluster):
             req.transfer_end_time = current_time
 
         self.decode_scheduler.move_to_decode_queue(batch.requests)
+
+        # CRITICAL: Remove from prefill resident (transfer complete)
+        self.prefill_memory.remove_resident_requests(batch.requests)
+
+        # CRITICAL: Add to decode cluster's resident (KV now in decode memory)
+        self.decode_memory.add_resident_requests(batch.requests)
 
     def handle_decode_step_finished(self, batch_id: int, current_time: float) -> Optional[ScheduleResult]:
         """Handle decode step completion."""
@@ -235,6 +246,9 @@ class DisaggregatedCluster(BaseCluster):
 
         # Remove finished
         if finished_requests:
+            # CRITICAL: Remove from resident KV (decode complete, KV no longer needed)
+            self.decode_memory.remove_resident_requests(finished_requests)
+
             self.decode_scheduler.remove_finished_requests(finished_requests)
             batch.remove_finished_requests()
 

@@ -173,6 +173,9 @@ class AggregatedCluster(BaseCluster):
         # Move requests to decode queue
         self.scheduler.move_to_decode_queue(batch.requests)
 
+        # CRITICAL: Add to resident KV (prefill complete, KV now in memory)
+        self.memory_manager.add_resident_requests(batch.requests)
+
         # Free GPU
         self.is_gpu_busy = False
         self.current_batch = None
@@ -205,6 +208,9 @@ class AggregatedCluster(BaseCluster):
 
         # Remove finished requests
         if finished_requests:
+            # CRITICAL: Remove from resident KV (decode complete, KV no longer needed)
+            self.memory_manager.remove_resident_requests(finished_requests)
+
             self.scheduler.remove_finished_requests(finished_requests)
             batch.remove_finished_requests()
 
