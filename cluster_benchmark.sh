@@ -7,7 +7,7 @@
 ################################################################################
 
 MODEL="llama2-70b"
-ARRIVAL_RATE=5.0
+ARRIVAL_RATE=20.0
 DURATION=1000.0
 WARM_UP=100.0
 
@@ -50,8 +50,15 @@ AGGREGATED_CONFIGS=(
     "h100-80gb:8:8:8× H100-80GB (TP=8)"
 )
 
+DISAGGREGATED_CONFIGS=(
+    "a100-80gb:4:4:mi300x:4:4:100:Disagg: 4×A100 + 4×MI300X (100GB/s)"
+    "a100-80gb:4:4:mi300x:4:4:400:Disagg: 4×A100 + 4×MI300X (400GB/s)"
+    "h100-80gb:4:4:mi300x:4:4:400:Disagg: 4×H100 + 4×MI300X (400GB/s)"
+)
+
+
 test_num=0
-total_tests=$((${#AGGREGATED_CONFIGS[@]} + 3))
+total_tests=$((${#AGGREGATED_CONFIGS[@]}+${#DISAGGREGATED_CONFIGS[@]}))
 
 for config in "${AGGREGATED_CONFIGS[@]}"; do
     test_num=$((test_num + 1))
@@ -109,11 +116,6 @@ echo ""
 echo "Testing Disaggregated Configurations..."
 echo ""
 
-DISAGGREGATED_CONFIGS=(
-    "a100-80gb:4:4:mi300x:8:8:100:Disagg: 4×A100 + 8×MI300X (100GB/s)"
-    "a100-80gb:4:4:mi300x:8:8:400:Disagg: 4×A100 + 8×MI300X (400GB/s)"
-    "h100-80gb:4:4:mi300x:8:8:400:Disagg: 4×H100 + 8×MI300X (400GB/s)"
-)
 
 for config in "${DISAGGREGATED_CONFIGS[@]}"; do
     test_num=$((test_num + 1))

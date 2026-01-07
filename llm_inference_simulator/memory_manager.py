@@ -5,10 +5,10 @@ UPDATED: Now tracks "resident" requests whose KV cache is in GPU memory.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 from .config import ModelSpec, ParallelismSpec
-from .xpu_spec import DataType, xPUSpec
-from .request import Request, Batch
+from .xpu_spec import xPUSpec
+from .request import Request
 
 
 @dataclass

@@ -66,34 +66,6 @@ class Scheduler:
         """Check if we can schedule a decode batch."""
         return len(self.decode_queue) > 0
 
-    def get_next_wakeup_time(self, current_time: float) -> Optional[float]:
-        """
-        Get next wakeup time for batching window (only for windowed strategy).
-
-        Returns None if no wakeup needed.
-        """
-        # Greedy doesn't need wakeup
-        if self.spec.batching_strategy == "greedy":
-            return None
-
-        if len(self.prefill_queue) == 0:
-            return None
-
-        # If already have enough requests, no wakeup needed
-        if len(self.prefill_queue) >= self.spec.min_batch_size:
-            return None
-
-        # Calculate when oldest request will hit batching window
-        oldest_request = self.prefill_queue[0]
-        batching_window_s = self.spec.batching_window_ms / 1000.0
-        wakeup_time = oldest_request.arrival_time + batching_window_s
-
-        # Only schedule wakeup if it's in the future
-        if wakeup_time > current_time:
-            return wakeup_time
-
-        return None
-
     def schedule_prefill_batch(self, current_time: float,
                               memory_checker: Optional[Callable] = None) -> Optional[Batch]:
         """

@@ -13,16 +13,15 @@ from dataclasses import dataclass, field
 
 from .events import (
     Event, EventType,
-    RequestArrivedEvent, RequestTokenizedEvent,
+    RequestArrivedEvent,
     PrefillFinishedEvent,
     DecodeStepFinishedEvent,
     RequestFinishedEvent,
     KVTransferFinishedEvent,
 )
 from .config import SimulatorConfig
-from .request import Request, Batch, RequestStatus
-from .cluster import ClusterFactory
-from .disaggregated_cluster import DisaggregatedCluster
+from .request import Request, RequestStatus
+from .cluster import ClusterFactory, ScheduleResult
 
 
 @dataclass
@@ -78,6 +77,18 @@ class LLMInferenceSimulator:
         # Create cluster using factory (polymorphism!)
         self.cluster = ClusterFactory.create(config)
 
+        self._print_configuration()
+
+    def _print_configuration(self):
+        """Print the simulation configuration details."""
+        print(f"\n{'='*60}")
+        print(f"Configuration: {self.config.model_spec.name}")
+        print(f"Global Arrival Rate: {self.config.workload_spec.arrival_rate} req/s")
+        print(f"-" * 60)
+
+        self.cluster.print_info()
+
+
     def schedule_event(self, event: Event):
         """Add an event to the event queue."""
         heapq.heappush(self.event_queue, event)
@@ -85,15 +96,6 @@ class LLMInferenceSimulator:
     def run(self):
         """Run the simulation."""
         print(f"Starting simulation...")
-
-        if isinstance(self.cluster, DisaggregatedCluster):
-            print(f"Configuration: {self.config.model_spec.name}, "
-                  f"Disaggregated mode, "
-                  f"arrival_rate={self.config.workload_spec.arrival_rate} req/s")
-        else:
-            print(f"Configuration: {self.config.model_spec.name}, "
-                  f"{self.config.cluster_spec.total_xpus} xPUs, "
-                  f"arrival_rate={self.config.workload_spec.arrival_rate} req/s")
 
         self._schedule_initial_arrivals()
 
@@ -198,32 +200,28 @@ class LLMInferenceSimulator:
 
     def _handle_prefill_finished(self, event: PrefillFinishedEvent):
         """Handle prefill completion."""
+        # CRITICAL: Get batch BEFORE cluster handler (cluster may delete it!)
+        scheduler = self.cluster.get_prefill_scheduler()
+        batch = scheduler.batch_manager.get_batch(event.batch_id)  # ← 먼저 확보!
+
         # Delegate to cluster (polymorphism!)
-        self.cluster.handle_prefill_finished(event.batch_id, self.current_time)
+        self.cluster.handle_prefill_finished(event.batch_id, self.current_time)  # ← 이제 호출해도 OK
 
-        # Special handling for disaggregated: schedule KV transfer
-        if isinstance(self.cluster, DisaggregatedCluster):
-            transfer_time = self.cluster.calculate_transfer_time(event.batch_id)
+        # Check if KV transfer needed (polymorphism!)
+        transfer_delay = self.cluster.get_kv_transfer_delay(event.batch_id)
 
-            # Get batch to extract request IDs
-            batch = self.cluster.prefill_scheduler.batch_manager.get_batch(event.batch_id)
+        if transfer_delay and transfer_delay > 0:
+            # Use pre-fetched batch (not re-query!)
             if batch:
                 transfer_event = KVTransferFinishedEvent(
-                    timestamp=self.current_time + transfer_time,
+                    timestamp=self.current_time + transfer_delay,
                     batch_id=event.batch_id,
                     request_ids=[r.request_id for r in batch.requests]
                 )
                 self.schedule_event(transfer_event)
 
-        # Collect prefill metrics
+        # Collect prefill metrics (use pre-fetched batch!)
         if self._is_in_measurement_window():
-            # Get scheduler based on cluster type
-            if isinstance(self.cluster, DisaggregatedCluster):
-                scheduler = self.cluster.prefill_scheduler
-            else:
-                scheduler = self.cluster.scheduler
-
-            batch = scheduler.batch_manager.get_batch(event.batch_id)
             if batch:
                 for req in batch.requests:
                     if req.prefill_latency:
@@ -232,9 +230,12 @@ class LLMInferenceSimulator:
         # Try scheduling next work
         self._try_schedule()
 
+
     def _handle_decode_step_finished(self, event: DecodeStepFinishedEvent):
         """Handle decode step completion."""
         # Delegate to cluster (polymorphism!)
+        scheduler = self.cluster.get_decode_scheduler()
+        batch = scheduler.batch_manager.get_batch(event.batch_id)
         continue_result = self.cluster.handle_decode_step_finished(
             event.batch_id,
             self.current_time
@@ -243,12 +244,6 @@ class LLMInferenceSimulator:
         # Collect finished request metrics BEFORE batch is cleaned up
         if self._is_in_measurement_window():
             # Get scheduler based on cluster type
-            if isinstance(self.cluster, DisaggregatedCluster):
-                scheduler = self.cluster.decode_scheduler
-            else:
-                scheduler = self.cluster.scheduler
-
-            batch = scheduler.batch_manager.get_batch(event.batch_id)
             if batch:
                 # Count all requests that were in batch (for token count)
                 self.metrics.total_tokens_generated += len(batch.requests)
@@ -258,26 +253,48 @@ class LLMInferenceSimulator:
 
         # If batch continues, schedule next iteration
         if continue_result:
-            self.schedule_event(continue_result.event)
+            # Simulator creates Event
+            event = self._create_event_from_result(continue_result)
+            if event:
+                self.schedule_event(event)
 
             if self._is_in_measurement_window():
                 self.metrics.gpu_busy_time += continue_result.busy_time
+
 
         # Try scheduling next work (if batch finished)
         if not continue_result:
             self._try_schedule()
 
+
     def _handle_kv_transfer_finished(self, event: KVTransferFinishedEvent):
         """Handle KV cache transfer completion (disaggregated only)."""
-        if isinstance(self.cluster, DisaggregatedCluster):
-            self.cluster.handle_kv_transfer_finished(event.batch_id, self.current_time)
+        # All clusters implement this (polymorphism!)
+        self.cluster.handle_kv_transfer_finished(event.batch_id, self.current_time)
 
-            # Try scheduling decode after transfer
-            self._try_schedule()
+        # Try scheduling decode after transfer
+        self._try_schedule()
+
 
     def _handle_request_finished(self, event: RequestFinishedEvent):
         """Handle request completion (legacy - not used in current design)."""
         pass
+
+    def _create_event_from_result(self, result: ScheduleResult) -> Optional[Event]:
+        """Convert ScheduleResult descriptor to Event."""
+        if result.operation_type == "prefill":
+            return PrefillFinishedEvent(
+                timestamp=self.current_time + result.busy_time,
+                batch_id=result.batch_id
+            )
+        elif result.operation_type == "decode":
+            return DecodeStepFinishedEvent(
+                timestamp=self.current_time + result.busy_time,
+                batch_id=result.batch_id,
+                step=result.decode_step
+            )
+        return None
+
 
     # ========== SCHEDULING ==========
 
@@ -290,12 +307,15 @@ class LLMInferenceSimulator:
         results = self.cluster.try_schedule(self.current_time)
 
         # Schedule all events returned
-        for schedule_result in results:
-            self.schedule_event(schedule_result.event)
+        for result in results:
+            # Simulator creates Event from descriptor
+            event = self._create_event_from_result(result)
+            if event:
+                self.schedule_event(event)
 
             # Track GPU busy time if in measurement window
             if self._is_in_measurement_window():
-                self.metrics.gpu_busy_time += schedule_result.busy_time
+                self.metrics.gpu_busy_time += result.busy_time
 
     # ========== UTILITIES ==========
 
@@ -332,17 +352,11 @@ class LLMInferenceSimulator:
 
         if self.current_time >= self.measurement_end:
             # Check if all requests completed
-            if not self.cluster.is_busy():
-                if isinstance(self.cluster, DisaggregatedCluster):
-                    prefill_empty = len(self.cluster.prefill_scheduler.prefill_queue) == 0
-                    decode_empty = len(self.cluster.decode_scheduler.decode_queue) == 0
-                else:
-                    prefill_empty = len(self.cluster.scheduler.prefill_queue) == 0
-                    decode_empty = len(self.cluster.scheduler.decode_queue) == 0
 
-                if prefill_empty and decode_empty:
-                    return True
-
+            prefill_empty = len(self.cluster.get_prefill_scheduler().prefill_queue) == 0
+            decode_empty = len(self.cluster.get_decode_scheduler().decode_queue) == 0
+            if not self.cluster.is_busy() and prefill_empty and decode_empty:
+                return True
         return False
 
     def _record_completed_request(self, request: Request):

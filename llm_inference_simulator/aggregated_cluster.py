@@ -11,7 +11,6 @@ from .request import Request, RequestStatus
 from .scheduler import Scheduler
 from .memory_manager import MemoryManager
 from .performance_model import PerformanceModel
-from .events import PrefillFinishedEvent, DecodeStepFinishedEvent
 
 
 class AggregatedCluster(BaseCluster):
@@ -46,6 +45,9 @@ class AggregatedCluster(BaseCluster):
         self.is_gpu_busy = False
         self.current_batch = None
         self.last_finished_requests = []
+
+        self.n_xpus = n_xpus
+        self.xpu_spec = xpu_spec
 
 
     def try_schedule(self, current_time: float) -> List[ScheduleResult]:
@@ -109,13 +111,12 @@ class AggregatedCluster(BaseCluster):
         # Update memory tracking
         self.memory_manager.update_memory_usage(batch.requests, is_prefill=True)
 
-        # Create completion event
-        event = PrefillFinishedEvent(
-            timestamp=current_time + prefill_time,
+        # Return descriptor (Simulator creates Event)
+        return ScheduleResult(
+            operation_type="prefill",
+            busy_time=prefill_time,
             batch_id=batch.batch_id
         )
-
-        return ScheduleResult(busy_time=prefill_time, event=event)
 
     def _schedule_decode(self, current_time: float) -> Optional[ScheduleResult]:
         """Schedule a decode batch."""
@@ -148,14 +149,13 @@ class AggregatedCluster(BaseCluster):
         # Update memory tracking
         self.memory_manager.update_memory_usage(batch.requests, is_prefill=False)
 
-        # Create completion event
-        event = DecodeStepFinishedEvent(
-            timestamp=current_time + decode_time,
+        # Return descriptor (Simulator creates Event)
+        return ScheduleResult(
+            operation_type="decode",
+            busy_time=decode_time,
             batch_id=batch.batch_id,
-            step=batch.current_decode_step
+            decode_step=batch.current_decode_step
         )
-
-        return ScheduleResult(busy_time=decode_time, event=event)
 
     def handle_prefill_finished(self, batch_id: int, current_time: float):
         """Handle prefill batch completion."""
@@ -173,8 +173,11 @@ class AggregatedCluster(BaseCluster):
         # Move requests to decode queue
         self.scheduler.move_to_decode_queue(batch.requests)
 
-        # CRITICAL: Add to resident KV (prefill complete, KV now in memory)
+        # CRITICAL: Add to resident KV
         self.memory_manager.add_resident_requests(batch.requests)
+
+        # CRITICAL: Remove batch from manager (prevent memory leak)
+        self.scheduler.batch_manager.remove_batch(batch)
 
         # Free GPU
         self.is_gpu_busy = False
@@ -222,19 +225,18 @@ class AggregatedCluster(BaseCluster):
             self.current_batch = None
             return None
         else:
-            # Continue decoding
+            # Continue decoding - return descriptor (Simulator creates Event)
             decode_time = self.performance_model.estimate_decode_time(
                 batch_size=batch.batch_size,
                 kv_cache_length=batch.max_kv_cache_length
             )
 
-            event = DecodeStepFinishedEvent(
-                timestamp=current_time + decode_time,
+            return ScheduleResult(
+                operation_type="decode",
+                busy_time=decode_time,
                 batch_id=batch.batch_id,
-                step=batch.current_decode_step
+                decode_step=batch.current_decode_step
             )
-
-            return ScheduleResult(busy_time=decode_time, event=event)
 
     def is_busy(self) -> bool:
         """Check if GPU is busy."""
@@ -247,3 +249,40 @@ class AggregatedCluster(BaseCluster):
     def get_memory_usage(self):
         """Get memory usage statistics."""
         return self.memory_manager.get_memory_usage()
+
+
+    def print_info(self):
+        """Print configuration for Aggregated Cluster."""
+        print(f"Mode: Aggregated (Single Cluster)")
+        print(f"-" * 60)
+
+        print(f"[Cluster Resources]")
+        print(f"  Hardware: {self.n_xpus}x {self.xpu_spec.name} "
+              f"(TP={self.memory_manager.parallel.tensor_parallel_size})")
+
+        self._print_stage_details(self.memory_manager, self.scheduler, self.n_xpus)
+
+    def _print_stage_details(self, memory_manager, scheduler, num_xpus):
+        """Helper to print memory and scheduler details."""
+        stats = memory_manager.get_memory_stats()
+        per_dev_total = stats['total_memory_gb']
+        per_dev_model = stats['model_weights_gb']
+        per_dev_kv = stats['available_for_kv_cache_gb']
+        cluster_total_mem = per_dev_total * num_xpus
+
+        print(f"  Memory Strategy:")
+        print(f"    - HBM Capacity: {per_dev_total:.2f} GB (Per xPU) -> {cluster_total_mem:.2f} GB (Cluster Total)")
+        print(f"    - Model Weights: {per_dev_model:.2f} GB/xPU ({(per_dev_model/per_dev_total)*100:.1f}%)")
+        print(f"    - KV Cache Space: {per_dev_kv:.2f} GB/xPU ({(per_dev_kv/per_dev_total)*100:.1f}%)")
+
+        spec = scheduler.spec
+        print(f"  Scheduler:")
+        print(f"    - Type:     {spec.batching_type.capitalize()} Batching")
+        print(f"    - Strategy: {spec.batching_strategy.upper()}")
+        print(f"    - Max Batch: {spec.max_batch_size if spec.max_batch_size else 'Dynamic (Memory-bound)'}")
+
+    def get_prefill_scheduler(self) -> Scheduler:
+        return self.scheduler
+
+    def get_decode_scheduler(self) -> Scheduler:
+        return self.scheduler

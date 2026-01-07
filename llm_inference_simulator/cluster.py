@@ -11,15 +11,18 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 
+from llm_inference_simulator.scheduler import Scheduler
+
 from .request import Request
-from .events import Event
 
 
 @dataclass
 class ScheduleResult:
-    """Result from scheduling attempt."""
-    busy_time: float  # How long GPU will be busy
-    event: Event      # Event to schedule when done
+    """Result from scheduling attempt - describes operation without Event."""
+    operation_type: str              # "prefill" or "decode"
+    busy_time: float                 # Execution time in seconds
+    batch_id: int                    # Batch identifier
+    decode_step: Optional[int] = None  # Current step (decode only)
 
 
 class BaseCluster(ABC):
@@ -73,6 +76,37 @@ class BaseCluster(ABC):
         """Get current memory usage statistics."""
         pass
 
+    @abstractmethod
+    def print_info(self):
+        """Print cluster configuration details."""
+        pass
+
+    @abstractmethod
+    def get_prefill_scheduler(self) -> Scheduler:
+        pass
+
+    @abstractmethod
+    def get_decode_scheduler(self) -> Scheduler:
+        pass
+
+    def handle_kv_transfer_finished(self, batch_id: int, current_time: float):
+        """
+        Handle KV transfer completion.
+
+        Default: no-op (aggregated mode doesn't need KV transfer)
+        Override in disaggregated mode.
+        """
+        pass
+
+    def get_kv_transfer_delay(self, batch_id: int) -> Optional[float]:
+        """
+        Get KV cache transfer delay after prefill.
+
+        Returns:
+            None or 0: No transfer needed
+            > 0: Transfer time in seconds
+        """
+        return None  # Default: no transfer
 
 class ClusterFactory:
     """Factory for creating clusters."""

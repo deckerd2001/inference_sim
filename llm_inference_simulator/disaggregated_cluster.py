@@ -10,7 +10,6 @@ from .request import Request, RequestStatus
 from .scheduler import Scheduler
 from .memory_manager import MemoryManager
 from .performance_model import PerformanceModel
-from .events import PrefillFinishedEvent, DecodeStepFinishedEvent, KVTransferStartedEvent
 
 
 class DisaggregatedCluster(BaseCluster):
@@ -61,6 +60,11 @@ class DisaggregatedCluster(BaseCluster):
         # Transfer parameters
         self.transfer_bandwidth_gbs = transfer_bandwidth_gbs
         self.last_finished_requests = []
+
+        self.prefill_n_xpus = prefill_n_xpus
+        self.prefill_xpu_spec = prefill_xpu_spec
+        self.decode_n_xpus = decode_n_xpus
+        self.decode_xpu_spec = decode_xpu_spec
 
     def try_schedule(self, current_time: float) -> List[ScheduleResult]:
         """
@@ -118,13 +122,12 @@ class DisaggregatedCluster(BaseCluster):
         # Update memory
         self.prefill_memory.update_memory_usage(batch.requests, is_prefill=True)
 
-        # Create event
-        event = PrefillFinishedEvent(
-            timestamp=current_time + prefill_time,
+        # Return descriptor (Simulator creates Event)
+        return ScheduleResult(
+            operation_type="prefill",
+            busy_time=prefill_time,
             batch_id=batch.batch_id
         )
-
-        return ScheduleResult(busy_time=prefill_time, event=event)
 
     def _schedule_decode(self, current_time: float) -> Optional[ScheduleResult]:
         """Schedule decode on decode cluster."""
@@ -156,14 +159,13 @@ class DisaggregatedCluster(BaseCluster):
         # Update memory
         self.decode_memory.update_memory_usage(batch.requests, is_prefill=False)
 
-        # Create event
-        event = DecodeStepFinishedEvent(
-            timestamp=current_time + decode_time,
+        # Return descriptor (Simulator creates Event)
+        return ScheduleResult(
+            operation_type="decode",
+            busy_time=decode_time,
             batch_id=batch.batch_id,
-            step=batch.current_decode_step
+            decode_step=batch.current_decode_step
         )
-
-        return ScheduleResult(busy_time=decode_time, event=event)
 
     def handle_prefill_finished(self, batch_id: int, current_time: float):
         """
@@ -181,12 +183,6 @@ class DisaggregatedCluster(BaseCluster):
         for req in batch.requests:
             req.prefill_end_time = current_time
             req.current_kv_cache_length = req.input_length
-
-        # Calculate KV cache size for transfer
-        total_kv_size_gb = self.prefill_memory.calculate_batch_kv_cache_memory(batch.requests)
-
-        # Estimate transfer time
-        transfer_time = total_kv_size_gb / self.transfer_bandwidth_gbs
 
         # Note: KV transfer event should be created by simulator
         # We just free the prefill cluster here
@@ -219,6 +215,9 @@ class DisaggregatedCluster(BaseCluster):
 
         # CRITICAL: Add to decode cluster's resident (KV now in decode memory)
         self.decode_memory.add_resident_requests(batch.requests)
+
+        # CRITICAL: Remove batch from prefill manager (prevent memory leak)
+        self.prefill_scheduler.batch_manager.remove_batch(batch)
 
     def handle_decode_step_finished(self, batch_id: int, current_time: float) -> Optional[ScheduleResult]:
         """Handle decode step completion."""
@@ -259,19 +258,18 @@ class DisaggregatedCluster(BaseCluster):
             self.decode_batch = None
             return None
         else:
-            # Continue decode
+            # Continue decode - return descriptor (Simulator creates Event)
             decode_time = self.decode_performance.estimate_decode_time(
                 batch_size=batch.batch_size,
                 kv_cache_length=batch.max_kv_cache_length
             )
 
-            event = DecodeStepFinishedEvent(
-                timestamp=current_time + decode_time,
+            return ScheduleResult(
+                operation_type="decode",
+                busy_time=decode_time,
                 batch_id=batch.batch_id,
-                step=batch.current_decode_step
+                decode_step=batch.current_decode_step
             )
-
-            return ScheduleResult(busy_time=decode_time, event=event)
 
     def is_busy(self) -> bool:
         """Check if any cluster is busy."""
@@ -304,3 +302,55 @@ class DisaggregatedCluster(BaseCluster):
         transfer_time = total_kv_size_gb / self.transfer_bandwidth_gbs
 
         return transfer_time
+
+    def print_info(self):
+        """Print configuration for Disaggregated Cluster."""
+        print(f"Mode: Disaggregated Inference")
+        print(f"-" * 60)
+
+        # Prefill Info
+        print(f"[Prefill Cluster]")
+        print(f"  Hardware: {self.prefill_n_xpus}x {self.prefill_xpu_spec.name} "
+              f"(TP={self.prefill_memory.parallel.tensor_parallel_size})")
+        self._print_stage_details(self.prefill_memory, self.prefill_scheduler, self.prefill_n_xpus)
+        print(f"-" * 60)
+
+        # Decode Info
+        print(f"[Decode Cluster]")
+        print(f"  Hardware: {self.decode_n_xpus}x {self.decode_xpu_spec.name} "
+              f"(TP={self.decode_memory.parallel.tensor_parallel_size})")
+        self._print_stage_details(self.decode_memory, self.decode_scheduler, self.decode_n_xpus)
+
+        # Interconnect Info
+        print(f"-" * 60)
+        print(f"[Interconnect]")
+        print(f"  Bandwidth: {self.transfer_bandwidth_gbs} GB/s")
+
+    def _print_stage_details(self, memory_manager, scheduler, num_xpus):
+        stats = memory_manager.get_memory_stats()
+        per_dev_total = stats['total_memory_gb']
+        per_dev_model = stats['model_weights_gb']
+        per_dev_kv = stats['available_for_kv_cache_gb']
+        cluster_total_mem = per_dev_total * num_xpus
+
+        print(f"  Memory Strategy:")
+        print(f"    - HBM Capacity: {per_dev_total:.2f} GB (Per xPU) -> {cluster_total_mem:.2f} GB (Cluster Total)")
+        print(f"    - Model Weights: {per_dev_model:.2f} GB/xPU ({(per_dev_model/per_dev_total)*100:.1f}%)")
+        print(f"    - KV Cache Space: {per_dev_kv:.2f} GB/xPU ({(per_dev_kv/per_dev_total)*100:.1f}%)")
+
+        spec = scheduler.spec
+        print(f"  Scheduler:")
+        print(f"    - Type:     {spec.batching_type.capitalize()} Batching")
+        print(f"    - Strategy: {spec.batching_strategy.upper()}")
+        print(f"    - Max Batch: {spec.max_batch_size if spec.max_batch_size else 'Dynamic (Memory-bound)'}")
+
+    def get_prefill_scheduler(self) -> Scheduler:
+        return self.prefill_scheduler
+
+    def get_decode_scheduler(self) -> Scheduler:
+        return self.decode_scheduler
+
+
+    def get_kv_transfer_delay(self, batch_id: int) -> Optional[float]:
+        """Return KV transfer time."""
+        return self.calculate_transfer_time(batch_id)
