@@ -1,31 +1,29 @@
 """
-Performance modeling for LLM inference.
-Calculates compute, memory, and communication costs for Prefill and Decode phases.
+Roofline-based performance model using hardware specifications.
 
-Each component uses the roofline model: time = max(compute_time, memory_time)
+This is the default performance model that uses hardware specs (TFLOPS, bandwidth)
+to estimate inference time using roofline analysis.
 """
 
 import math
 from typing import Tuple, Optional, Dict, Any
-from .config import ModelSpec, ParallelismSpec
-from .xpu_spec import DataType, OperationType, xPUSpec
-from .communication import (
+from .base import BasePerformanceModel
+from ..config import ModelSpec, ParallelismSpec
+from ..xpu_spec import DataType, OperationType, xPUSpec
+from ..communication import (
     TPCommunicationStrategy,
     estimate_collective_time,
     create_megatron_tp_strategy,
 )
 
 
-class PerformanceModel:
+class RooflinePerformanceModel(BasePerformanceModel):
     """
-    Models the performance of Transformer-based LLM inference.
-
-    This includes:
-    - Compute costs (FLOPs) for attention and MLP
-    - Memory costs (bytes transferred)
-    - Communication costs for parallelism
-
-    Each component is modeled separately with roofline analysis.
+    Roofline-based performance model using hardware specifications.
+    
+    This model uses hardware specs (TFLOPS, memory bandwidth) to estimate
+    inference time. Each component uses roofline analysis:
+    time = max(compute_time, memory_time) + communication_time
     """
 
     def __init__(self, model_spec: ModelSpec, xpu_spec: xPUSpec,
@@ -49,16 +47,14 @@ class PerformanceModel:
         # FLOPS per operation (2 for multiply-add)
         self.flops_per_mac = 2
 
-    # ========== HIGH-LEVEL ESTIMATION ==========
-
     def estimate_prefill_time(self, batch_size: int, seq_length: int) -> float:
         """
         Estimate time for prefill phase.
-
+        
         Args:
             batch_size: Number of sequences in batch
             seq_length: Input sequence length
-
+            
         Returns:
             Estimated time in seconds
         """
@@ -79,11 +75,11 @@ class PerformanceModel:
     def estimate_decode_time(self, batch_size: int, kv_cache_length: int) -> float:
         """
         Estimate time for a single decode step.
-
+        
         Args:
             batch_size: Number of sequences in batch
             kv_cache_length: Current length of KV cache (context length)
-
+            
         Returns:
             Estimated time in seconds
         """
@@ -105,15 +101,8 @@ class PerformanceModel:
     def breakdown_prefill(self, batch_size: int, seq_length: int) -> Dict[str, Any]:
         """
         Get detailed breakdown of prefill time by component.
-
+        
         Each component includes roofline analysis where applicable.
-
-        Args:
-            batch_size: Batch size
-            seq_length: Sequence length
-
-        Returns:
-            Dictionary with detailed timing for each component
         """
         B, L = batch_size, seq_length
         H = self.model.hidden_size
@@ -142,15 +131,8 @@ class PerformanceModel:
     def breakdown_decode(self, batch_size: int, kv_cache_length: int) -> Dict[str, Any]:
         """
         Get detailed breakdown of decode time by component.
-
+        
         Each component includes roofline analysis where applicable.
-
-        Args:
-            batch_size: Batch size
-            kv_cache_length: Current KV cache length
-
-        Returns:
-            Dictionary with detailed timing for each component
         """
         B, T = batch_size, kv_cache_length
         H = self.model.hidden_size
@@ -183,17 +165,8 @@ class PerformanceModel:
                           input_dim: int, output_dim: int) -> Dict[str, float]:
         """
         Generic linear layer: Y = X @ W
-
+        
         Applies roofline model: time = max(compute_time, memory_time)
-
-        Args:
-            batch_size: B
-            seq_length: L
-            input_dim: Input feature dimension
-            output_dim: Output feature dimension
-
-        Returns:
-            Dict with 'compute', 'memory', 'total', 'bottleneck'
         """
         B, L = batch_size, seq_length
 
@@ -219,11 +192,7 @@ class PerformanceModel:
         }
 
     def _qkv_projection_time(self, batch_size: int, seq_length: int) -> Dict[str, float]:
-        """
-        QKV projection: 3 linear layers in parallel.
-
-        X @ W_q, X @ W_k, X @ W_v (computed together)
-        """
+        """QKV projection: 3 linear layers in parallel."""
         H = self.model.hidden_size
 
         # 3x the size of a single linear layer
@@ -242,23 +211,16 @@ class PerformanceModel:
             'bottleneck': 'compute' if compute_time > memory_time else 'memory'
         }
 
-    # ========= ATTENTION COMPONENTS ==========
-    # Updated to include FlashAttention speedup
     def _attention_compute_time(self, batch_size: int, query_length: int,
                             kv_length: int) -> Dict[str, float]:
-        """
-        Attention computation: QK^T, Softmax, Attention*V
-
-        """
+        """Attention computation: QK^T, Softmax, Attention*V"""
         B = batch_size
         tp = max(1, self.parallel.tensor_parallel_size)
-        # Megatron TP shards attention heads across TP ranks
         H = self.model.n_heads / tp
         D = self.head_dim
         Q_len = query_length
         KV_len = kv_length
 
-        # === ORIGINAL CALCULATION ===
         # 1. QK^T
         qk_flops = B * H * Q_len * KV_len * D * self.flops_per_mac
         qk_compute = qk_flops / (self.xpu.get_matmul_tflops(self.model.weight_dtype) * 1e12)
@@ -274,9 +236,8 @@ class PerformanceModel:
 
         total_standard = qk_compute + softmax_time + attn_v_compute
 
-        # === NEW: FlashAttention Speedup ===
+        # FlashAttention speedup
         max_seq = max(Q_len, KV_len)
-
         if max_seq < 512:
             flash_speedup = 1.5
         elif max_seq < 2048:
@@ -286,58 +247,36 @@ class PerformanceModel:
 
         total_flash = total_standard / flash_speedup
 
-        # === RETURN ===
         return {
             'qk_matmul': qk_compute / flash_speedup,
             'softmax': softmax_time / flash_speedup,
             'attn_v_matmul': attn_v_compute / flash_speedup,
             'total': total_flash,
             'bottleneck': 'mixed',
-            'speedup_applied': flash_speedup  # For debugging
+            'speedup_applied': flash_speedup
         }
 
-
     def _norm_time(self, batch_size: int, seq_length: int, hidden_size: int) -> float:
-        """
-        LayerNorm / RMSNorm time.
-
-        Pure memory-bound operation: read input, compute stats, normalize, write output.
-        """
-        # Read + Write (2x)
+        """LayerNorm / RMSNorm time. Pure memory-bound operation."""
         norm_bytes = 2 * batch_size * seq_length * hidden_size * self.bytes_per_activation
         return norm_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
 
     def _activation_time(self, batch_size: int, seq_length: int, dim: int) -> float:
-        """
-        Activation function (SwiGLU, GELU, etc).
-
-        Pure memory-bound: read input, apply function, write output.
-        """
-        activation_bytes = 2 * batch_size * seq_length * dim * self.bytes_per_activation
+        """Activation function (SwiGLU, GELU, etc). Pure memory-bound."""
+        tp = max(1, self.parallel.tensor_parallel_size)
+        dim_per_tp = dim / tp
+        activation_bytes = 2 * batch_size * seq_length * dim_per_tp * self.bytes_per_activation
         return activation_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
 
     def _kv_cache_read_time(self, batch_size: int, kv_length: int) -> float:
-        """
-        KV cache read time (decode phase).
-
-        This is often the bottleneck in decode!
-        Must read all previous K and V for attention computation.
-
-        Pure memory operation.
-        """
-        # 2 = K and V
+        """KV cache read time (decode phase). Major bottleneck!"""
         tp = max(1, self.parallel.tensor_parallel_size)
         hidden_per_tp = self.model.hidden_size / tp
         kv_bytes = 2 * batch_size * kv_length * hidden_per_tp * self.bytes_per_activation
         return kv_bytes / (self.xpu.memory_bandwidth_gbs * 1e9)
 
     def _kv_cache_write_time(self, batch_size: int, seq_length: int) -> float:
-        """
-        KV cache write time.
-
-        Write newly computed K and V to cache.
-        Pure memory operation.
-        """
+        """KV cache write time."""
         tp = max(1, self.parallel.tensor_parallel_size)
         hidden_per_tp = self.model.hidden_size / tp
         kv_bytes = 2 * batch_size * seq_length * hidden_per_tp * self.bytes_per_activation
@@ -370,7 +309,7 @@ class PerformanceModel:
             self.tp_comm_strategy.mlp_down_projection.collective_op,
             activation_size,
             self.parallel.tensor_parallel_size,
-            self.xpu.intra_node_bandwidth_gbs,  # NVLink bandwidth for TP communication
+            self.xpu.intra_node_bandwidth_gbs,
             5.0,
             self.tp_comm_strategy.mlp_down_projection.algorithm,
         )
@@ -402,23 +341,3 @@ class PerformanceModel:
             else:
                 total += val
         return total
-
-    def estimate_kv_cache_size(self, batch_size: int, max_seq_length: int) -> float:
-        """
-        Estimate KV cache memory size in GB.
-
-        Args:
-            batch_size: Number of sequences
-            max_seq_length: Maximum sequence length
-
-        Returns:
-            KV cache size in GB
-        """
-        tp = max(1, self.parallel.tensor_parallel_size)
-        hidden_per_tp = self.model.hidden_size / tp  # Megatron TP shards heads => shard hidden
-        kv_cache_elements = (2 * self.model.n_layers * batch_size *
-                    max_seq_length * hidden_per_tp)
-        kv_cache_bytes = kv_cache_elements * self.bytes_per_activation
-        kv_cache_gb = kv_cache_bytes / (1024 ** 3)
-
-        return kv_cache_gb
