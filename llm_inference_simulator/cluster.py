@@ -139,7 +139,8 @@ class ClusterFactory:
                 decode_n_xpus=disagg_spec.decode_cluster.total_xpus,
                 decode_parallelism=disagg_spec.decode_parallelism,
                 transfer_bandwidth_gbs=disagg_spec.transfer_bandwidth_gbs,
-                scheduler_spec=config.scheduler_spec
+                scheduler_spec=config.scheduler_spec,
+                performance_model_config=config.performance_model_config
             )
         else:
             # Aggregated mode - use cluster_spec, not hardware_spec!
@@ -148,5 +149,6 @@ class ClusterFactory:
                 xpu_spec=config.cluster_spec.xpu_spec,
                 n_xpus=config.cluster_spec.total_xpus,
                 parallelism_spec=config.parallelism_spec,
-                scheduler_spec=config.scheduler_spec
+                scheduler_spec=config.scheduler_spec,
+                performance_model_config=config.performance_model_config
             )

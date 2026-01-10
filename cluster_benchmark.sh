@@ -11,6 +11,10 @@ ARRIVAL_RATE=20.0
 DURATION=1000.0
 WARM_UP=100.0
 
+# Performance model (default: roofline, or use vllm_roofline with calibration data)
+PERF_MODEL="roofline"  # Options: roofline, vllm_roofline
+CALIBRATION_DATA=""    # Path to calibration JSON (required for vllm_roofline)
+
 # Workload settings (for display)
 AVG_INPUT=512
 MAX_INPUT=1024
@@ -72,6 +76,13 @@ for config in "${AGGREGATED_CONFIGS[@]}"; do
 
     RANDOM_SEED=$(date +%s)
 
+    perf_model_args=""
+    if [ "$PERF_MODEL" = "vllm_roofline" ] && [ -n "$CALIBRATION_DATA" ]; then
+        perf_model_args="--performance-model $PERF_MODEL --calibration-data $CALIBRATION_DATA"
+    elif [ "$PERF_MODEL" != "roofline" ]; then
+        perf_model_args="--performance-model $PERF_MODEL"
+    fi
+
     python3 -m llm_inference_simulator \
         --model $MODEL \
         --xpu $xpu \
@@ -81,6 +92,7 @@ for config in "${AGGREGATED_CONFIGS[@]}"; do
         --duration $DURATION \
         --warm-up $WARM_UP \
         --seed $RANDOM_SEED \
+        $perf_model_args \
         --output $result_file \
         2>&1 | tee $output_file > /dev/null
 
@@ -130,6 +142,13 @@ for config in "${DISAGGREGATED_CONFIGS[@]}"; do
 
     RANDOM_SEED=$(date +%s)
 
+    perf_model_args=""
+    if [ "$PERF_MODEL" = "vllm_roofline" ] && [ -n "$CALIBRATION_DATA" ]; then
+        perf_model_args="--performance-model $PERF_MODEL --calibration-data $CALIBRATION_DATA"
+    elif [ "$PERF_MODEL" != "roofline" ]; then
+        perf_model_args="--performance-model $PERF_MODEL"
+    fi
+
     python3 -m llm_inference_simulator \
         --model $MODEL \
         --disaggregated \
@@ -144,6 +163,7 @@ for config in "${DISAGGREGATED_CONFIGS[@]}"; do
         --duration $DURATION \
         --warm-up $WARM_UP \
         --seed $RANDOM_SEED \
+        $perf_model_args \
         --output $result_file \
         2>&1 | tee $output_file > /dev/null
 

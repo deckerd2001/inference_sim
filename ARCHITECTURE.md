@@ -164,7 +164,7 @@ exceed device memory.
 
 ---
 
-## 8. Performance model (`performance_model.py`)
+## 8. Performance model (`performance_models/`)
 
 The performance model estimates phase time using a **roofline-like** approach:
 

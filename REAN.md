@@ -18,7 +18,7 @@ This project is designed to be *fast to iterate on* and *easy to extend*—it is
 - `events.py` — event types and event payloads
 - `request.py` — request/batch data structures
 - `scheduler.py` — prefill/decode queues + batching strategy
-- `performance_model.py` — roofline-style timing model (compute/memory/comm)
+- `performance_models/` — performance model implementations (roofline, vllm-calibrated)
 - `communication.py` — TP collective modeling (all-reduce/all-gather/etc.)
 - `memory_manager.py` — weight/KV/activation memory accounting + admission check
 - `model_catalog.py` — built-in model specs (e.g., `llama2-70b`)

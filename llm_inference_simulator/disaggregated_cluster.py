@@ -9,7 +9,8 @@ from .cluster import BaseCluster, ScheduleResult
 from .request import Request, RequestStatus
 from .scheduler import Scheduler
 from .memory_manager import MemoryManager
-from .performance_model import PerformanceModel
+from .performance_models.factory import create_performance_model
+from .config import PerformanceModelConfig
 
 
 class DisaggregatedCluster(BaseCluster):
@@ -25,7 +26,12 @@ class DisaggregatedCluster(BaseCluster):
 
     def __init__(self, model_spec, prefill_xpu_spec, prefill_n_xpus, prefill_parallelism,
                  decode_xpu_spec, decode_n_xpus, decode_parallelism,
-                 transfer_bandwidth_gbs, scheduler_spec):
+                 transfer_bandwidth_gbs, scheduler_spec,
+                 performance_model_config: Optional[PerformanceModelConfig] = None):
+
+        # Performance model config (default to roofline)
+        if performance_model_config is None:
+            performance_model_config = PerformanceModelConfig(model_type="roofline")
 
         # Prefill cluster
         self.prefill_scheduler = Scheduler(scheduler_spec)
@@ -34,10 +40,12 @@ class DisaggregatedCluster(BaseCluster):
             xpu_spec=prefill_xpu_spec,
             parallelism_spec=prefill_parallelism
         )
-        self.prefill_performance = PerformanceModel(
+        self.prefill_performance = create_performance_model(
+            model_type=performance_model_config.model_type,
             model_spec=model_spec,
             xpu_spec=prefill_xpu_spec,
-            parallelism_spec=prefill_parallelism
+            parallelism_spec=prefill_parallelism,
+            calibration_data_path=performance_model_config.calibration_data_path
         )
         self.prefill_gpu_busy = False
         self.prefill_batch = None
@@ -49,10 +57,12 @@ class DisaggregatedCluster(BaseCluster):
             xpu_spec=decode_xpu_spec,
             parallelism_spec=decode_parallelism
         )
-        self.decode_performance = PerformanceModel(
+        self.decode_performance = create_performance_model(
+            model_type=performance_model_config.model_type,
             model_spec=model_spec,
             xpu_spec=decode_xpu_spec,
-            parallelism_spec=decode_parallelism
+            parallelism_spec=decode_parallelism,
+            calibration_data_path=performance_model_config.calibration_data_path
         )
         self.decode_gpu_busy = False
         self.decode_batch = None

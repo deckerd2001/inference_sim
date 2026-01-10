@@ -15,6 +15,7 @@ from . import (
     InterconnectSpec,
     ParallelismSpec,
     SchedulerSpec,
+    PerformanceModelConfig,
     get_model,
     get_xpu,
 )
@@ -39,6 +40,15 @@ def load_config_from_json(config_path: str) -> SimulatorConfig:
 
     parallelism_spec = ParallelismSpec(**config_dict.get('parallelism', {}))
     scheduler_spec = SchedulerSpec(**config_dict.get('scheduler', {}))
+    
+    # Performance model config
+    perf_model_dict = config_dict.get('performance_model', {})
+    performance_model_config = None
+    if perf_model_dict:
+        performance_model_config = PerformanceModelConfig(
+            model_type=perf_model_dict.get('model_type', 'roofline'),
+            calibration_data_path=perf_model_dict.get('calibration_data_path')
+        )
 
     return SimulatorConfig(
         model_spec=model_spec,
@@ -46,6 +56,7 @@ def load_config_from_json(config_path: str) -> SimulatorConfig:
         cluster_spec=cluster_spec,
         parallelism_spec=parallelism_spec,
         scheduler_spec=scheduler_spec,
+        performance_model_config=performance_model_config,
         simulation_duration_s=config_dict.get('simulation_duration_s', 60.0),
         random_seed=config_dict.get('random_seed', 42),
     )
@@ -108,17 +119,24 @@ def create_config_from_args(args) -> SimulatorConfig:
             transfer_latency_ms=args.transfer_latency,
         )
 
+    # Performance model config
+    performance_model_config = PerformanceModelConfig(
+        model_type=args.performance_model,
+        calibration_data_path=args.calibration_data
+    )
+
     return SimulatorConfig(
         model_spec=model_spec,
         workload_spec=workload_spec,
         cluster_spec=cluster_spec,
         parallelism_spec=parallelism_spec,
         scheduler_spec=scheduler_spec,
+        disaggregation_spec=disaggregation_spec,
+        performance_model_config=performance_model_config,
         simulation_duration_s=args.duration,
         warm_up_duration_s=args.warm_up,
         random_seed=args.seed,
-
-        disaggregation_spec=disaggregation_spec,    )
+    )
 
 
 def metrics_to_dict(metrics) -> dict:
@@ -247,6 +265,13 @@ def main():
                         help='Inter-cluster bandwidth in GB/s (default: 100)')
     parser.add_argument('--transfer-latency', type=float, default=1.0,
                         help='Inter-cluster latency in ms (default: 1.0)')
+
+    # Performance model configuration
+    parser.add_argument('--performance-model', type=str, default='roofline',
+                        choices=['roofline', 'vllm_roofline'],
+                        help='Performance model type (default: roofline)')
+    parser.add_argument('--calibration-data', type=str, default=None,
+                        help='Path to calibration data (required for vllm_roofline)')
 
     parser.add_argument('--summary', action='store_true', help='Print config summary')
 

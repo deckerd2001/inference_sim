@@ -28,6 +28,7 @@ from .config import (
     SchedulerSpec,
     SimulatorConfig,
     DisaggregationSpec,
+    PerformanceModelConfig,
 )
 
 # Model catalog
@@ -60,6 +61,8 @@ __all__ = [
     "WorkloadSpec",
     "SchedulerSpec",
     "SimulatorConfig",
+    "DisaggregationSpec",
+    "PerformanceModelConfig",
 
     # Catalogs
     "get_model",

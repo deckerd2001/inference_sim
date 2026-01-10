@@ -123,6 +123,23 @@ class SchedulerSpec:
 
 
 @dataclass
+class PerformanceModelConfig:
+    """Performance model configuration."""
+    model_type: str = "roofline"  # "roofline" or "vllm_roofline"
+    calibration_data_path: Optional[str] = None  # Required for vllm_roofline
+    
+    def __post_init__(self):
+        if self.model_type not in ["roofline", "vllm_roofline"]:
+            raise ValueError(
+                f"model_type must be 'roofline' or 'vllm_roofline', got '{self.model_type}'"
+            )
+        if self.model_type == "vllm_roofline" and self.calibration_data_path is None:
+            raise ValueError(
+                "calibration_data_path is required when model_type is 'vllm_roofline'"
+            )
+
+
+@dataclass
 class SimulatorConfig:
     """Main simulator configuration."""
     model_spec: ModelSpec
@@ -131,6 +148,7 @@ class SimulatorConfig:
     parallelism_spec: ParallelismSpec
     scheduler_spec: SchedulerSpec
     disaggregation_spec: Optional[DisaggregationSpec] = None  # For disaggregated prefill/decode
+    performance_model_config: Optional[PerformanceModelConfig] = None  # Performance model config
 
 
     # Warm-up period (seconds to run before starting measurement)

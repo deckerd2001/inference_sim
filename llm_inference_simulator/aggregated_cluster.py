@@ -10,7 +10,8 @@ from .cluster import BaseCluster, ScheduleResult
 from .request import Request, RequestStatus
 from .scheduler import Scheduler
 from .memory_manager import MemoryManager
-from .performance_model import PerformanceModel
+from .performance_models.factory import create_performance_model
+from .config import PerformanceModelConfig
 
 
 class AggregatedCluster(BaseCluster):
@@ -23,7 +24,8 @@ class AggregatedCluster(BaseCluster):
     - Only one batch can run at a time
     """
 
-    def __init__(self, model_spec, xpu_spec, n_xpus, parallelism_spec, scheduler_spec):
+    def __init__(self, model_spec, xpu_spec, n_xpus, parallelism_spec, scheduler_spec,
+                 performance_model_config: Optional[PerformanceModelConfig] = None):
         # Scheduler
         self.scheduler = Scheduler(scheduler_spec)
 
@@ -34,11 +36,17 @@ class AggregatedCluster(BaseCluster):
             parallelism_spec=parallelism_spec
         )
 
-        # Performance modeling
-        self.performance_model = PerformanceModel(
+        # Performance modeling - use Factory
+        if performance_model_config is None:
+            # Default: roofline model
+            performance_model_config = PerformanceModelConfig(model_type="roofline")
+        
+        self.performance_model = create_performance_model(
+            model_type=performance_model_config.model_type,
             model_spec=model_spec,
             xpu_spec=xpu_spec,
-            parallelism_spec=parallelism_spec
+            parallelism_spec=parallelism_spec,
+            calibration_data_path=performance_model_config.calibration_data_path
         )
 
         # State
